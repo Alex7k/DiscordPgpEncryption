@@ -1,0 +1,39 @@
+.vc-pgp-lock {
+    color: var(--interactive-normal);
+}
+
+.vc-pgp-lock-enabled {
+    color: var(--status-positive, #23a55a);
+}
+
+.vc-pgp-accessory {
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.vc-pgp-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--background-secondary);
+    width: fit-content;
+    max-width: 100%;
+}
+
+.vc-pgp-fingerprint {
+    font-family: var(--font-code);
+    user-select: text;
+    word-break: break-all;
+}
+
+.vc-pgp-failed {
+    color: var(--status-danger, #f23f43);
+}
+
+.vc-pgp-clickable {
+    cursor: pointer;
+}
