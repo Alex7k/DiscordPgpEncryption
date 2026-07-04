@@ -36,7 +36,7 @@ function notify(body: string, onClick?: () => void) {
 async function canEnable(channel: Channel): Promise<boolean> {
     const ownKey = await getOwnKey();
     if (!ownKey) {
-        notify("You don't have a PGP keypair yet. Click here to open the plugin settings and generate one.", openPgpSettings);
+        notify("You don't have a PGP keypair. Click here to open the plugin settings and generate or import one.", openPgpSettings);
         return false;
     }
 
@@ -54,7 +54,7 @@ async function canEnable(channel: Channel): Promise<boolean> {
 async function shareOwnKey(channelId: string) {
     const ownKey = await getOwnKey();
     if (!ownKey) {
-        notify("You don't have a PGP keypair yet. Click here to open the plugin settings and generate one.", openPgpSettings);
+        notify("You don't have a PGP keypair. Click here to open the plugin settings and generate or import one.", openPgpSettings);
         return;
     }
 
