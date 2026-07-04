@@ -10,7 +10,7 @@ import { showNotification } from "@api/Notifications";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
-import { ChannelStore, MessageStore, UserStore } from "@webpack/common";
+import { ChannelStore, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
 
 import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS, parsePartHeader,type PartHeader } from "./crypto";
@@ -129,6 +129,19 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject, isE
 
 let notifiedLockedThisSession = false;
 
+/**
+ * Pushes decrypted content to stores that keep their own copy of a message,
+ * like the reply preview cache, which updateMessage does not reach. Partial
+ * MESSAGE_UPDATEs are what Discord itself sends for embed unfurls, so stores
+ * merge them cleanly. Deferred so it never lands inside an ongoing dispatch.
+ */
+function broadcastContent(channelId: string, messageId: string, content: string) {
+    queueMicrotask(() => FluxDispatcher.dispatch({
+        type: "MESSAGE_UPDATE",
+        message: { id: messageId, channel_id: channelId, content }
+    } as any));
+}
+
 export async function tryDecryptMessage(channelId: string, message: Message) {
     const messageId = message.id;
     const payload = getPgpMessagePayload(message.content ?? "");
@@ -175,6 +188,7 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
             detachFromGroup(messageId);
             messageStates.set(messageId, { type: "decrypted", verified });
             updateMessage(channelId, messageId, { content: text });
+            broadcastContent(channelId, messageId, text);
         }
     } catch (e) {
         logger.info(`Failed to decrypt message ${messageId}`, e);
@@ -204,6 +218,7 @@ function applyPart(channelId: string, messageId: string, part: PartHeader, verif
     } else {
         messageStates.set(messageId, { type: "decrypted", verified, part: { index: part.index, total: group.total, merged: false } });
         updateMessage(channelId, messageId, { content: part.text });
+        broadcastContent(channelId, messageId, part.text);
     }
 }
 
@@ -215,13 +230,17 @@ function mergeGroup(group: PartGroup) {
     const verified = ordered.some(p => p.verified === false) ? false
         : ordered.every(p => p.verified === true) ? true : null;
 
+    const joined = ordered.map(p => p.text).join("");
+
     group.merged = true;
     messageStates.set(first.messageId, { type: "decrypted", verified, part: { index: 1, total: group.total, merged: true } });
-    updateMessage(first.channelId, first.messageId, { content: ordered.map(p => p.text).join("") });
+    updateMessage(first.channelId, first.messageId, { content: joined });
+    broadcastContent(first.channelId, first.messageId, joined);
 
     for (const p of rest) {
         messageStates.set(p.messageId, { type: "continuation", index: p.index, total: group.total });
         updateMessage(p.channelId, p.messageId, { content: "" });
+        broadcastContent(p.channelId, p.messageId, "");
     }
 }
 
@@ -250,6 +269,7 @@ function detachFromGroup(messageId: string) {
         for (const p of group.parts.values()) {
             messageStates.set(p.messageId, { type: "decrypted", verified: p.verified, part: { index: p.index, total: group.total, merged: false } });
             updateMessage(p.channelId, p.messageId, { content: p.text });
+            broadcastContent(p.channelId, p.messageId, p.text);
         }
     }
 }
@@ -267,6 +287,30 @@ export function processPendingMessages() {
 
 // #endregion
 
+/**
+ * The reply preview store caches its own ciphertext copy of the referenced
+ * message when a reply arrives. Best effort: re-broadcast the plaintext if we
+ * already have it, otherwise decrypt the copy the reply brought along.
+ */
+function refreshReferencedMessage(fallbackChannelId: string, message: Message) {
+    const ref = (message as any).message_reference ?? message.messageReference;
+    const refId = ref?.message_id;
+    if (!refId) return;
+    const refChannelId = ref.channel_id ?? fallbackChannelId;
+
+    const state = messageStates.get(refId);
+    if (state?.type === "decrypted" || state?.type === "continuation") {
+        const stored = MessageStore.getMessage(refChannelId, refId);
+        if (stored) {
+            broadcastContent(refChannelId, refId, stored.content);
+            return;
+        }
+    }
+
+    const raw = (message as any).referenced_message ?? (message as any).referencedMessage;
+    if (raw?.id) void tryDecryptMessage(refChannelId, raw);
+}
+
 // #region Flux handlers
 
 export function handleMessageCreateOrUpdate(event: { channelId?: string; message?: Message; }) {
@@ -275,6 +319,7 @@ export function handleMessageCreateOrUpdate(event: { channelId?: string; message
     if (!message?.id || !channelId) return;
 
     void tryDecryptMessage(channelId, message);
+    refreshReferencedMessage(channelId, message);
 }
 
 export function handleLoadMessages(event: { channelId?: string; messages?: Message[]; }) {
@@ -282,7 +327,9 @@ export function handleLoadMessages(event: { channelId?: string; messages?: Messa
     if (!channelId || !Array.isArray(messages)) return;
 
     for (const message of messages) {
-        if (message?.id) void tryDecryptMessage(channelId, message);
+        if (!message?.id) continue;
+        void tryDecryptMessage(channelId, message);
+        refreshReferencedMessage(channelId, message);
     }
 }
 

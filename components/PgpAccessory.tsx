@@ -11,7 +11,7 @@ import { showToast, UserStore, useState } from "@webpack/common";
 
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
 import { getContacts, setContact } from "../keyStore";
-import { messageStates } from "../state";
+import { enabledChannels, messageStates } from "../state";
 import { ensureUnlocked } from "./UnlockModal";
 
 type ImportStatus = "own" | "new" | "imported" | "changed" | "invalid";
@@ -99,9 +99,27 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
     }
 }
 
+/** "the attachment is", "stickers are", ... or null when the message has no plain media */
+function plainMediaWarning(message: Message): string | null {
+    const attachments = message.attachments?.length ?? 0;
+    const stickers = message.stickerItems?.length ?? 0;
+    if (attachments && stickers) return "attachments and stickers are";
+    if (attachments) return attachments === 1 ? "the attachment is" : "attachments are";
+    if (stickers) return stickers === 1 ? "the sticker is" : "stickers are";
+    return null;
+}
+
 function StatusLine({ message }: { message: Message; }) {
     const state = messageStates.get(message.id);
-    if (!state) return null;
+    if (!state) {
+        // attachment-only or sticker-only messages never pass through encryption,
+        // so in an encrypted channel they deserve the warning on their own
+        if (!enabledChannels.has(message.channel_id)) return null;
+        const plain = plainMediaWarning(message);
+        return plain
+            ? <div className="vc-pgp-accessory vc-pgp-warn">⚠ {plain} NOT encrypted</div>
+            : null;
+    }
 
     switch (state.type) {
         case "pending":
@@ -133,11 +151,7 @@ function StatusLine({ message }: { message: Message; }) {
                     : ` · part ${state.part.index}/${state.part.total}`
                 : "";
             // only the text is encrypted; anything else riding on the message is not
-            const attachments = message.attachments?.length ?? 0;
-            const stickers = message.stickerItems?.length ?? 0;
-            const plain = attachments && stickers ? "attachments and stickers"
-                : attachments ? (attachments === 1 ? "the attachment" : "attachments")
-                    : stickers ? (stickers === 1 ? "the sticker" : "stickers") : null;
+            const plain = plainMediaWarning(message);
             return (
                 <div className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
                     🔒 End-to-end encrypted{sig}{part}
