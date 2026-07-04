@@ -8,6 +8,7 @@ import { updateMessage } from "@api/MessageUpdater";
 import { showNotification } from "@api/Notifications";
 import { Logger } from "@utils/Logger";
 import { CloudUpload, Message, MessageAttachment } from "@vencord/discord-types";
+import { findLazy } from "@webpack";
 import { ChannelStore, MessageStore, UserStore } from "@webpack/common";
 
 import { ensureUnlocked } from "./components/UnlockModal";
@@ -51,58 +52,83 @@ function notify(body: string, onClick?: () => void) {
 
 // #region Encrypt (outgoing uploads)
 
+const CloudUploadClass = findLazy((m: any) => m.prototype?.trackUploadFinished);
+const ENCRYPTED_MARK = Symbol("pgpEncrypted");
+let originalUpload: ((...args: any[]) => any) | undefined;
+
 /**
- * Called from the uploadFiles patch before anything leaves the machine.
- * Replaces each upload's bytes with signed ciphertext; the real filename is
- * hidden inside the encrypted blob. Throws to abort the upload entirely
- * rather than ever letting plaintext through.
+ * Discord starts uploading a file the moment it is attached, before send, so
+ * hooking the send path is too late (the plaintext is already on the cdn). We
+ * wrap the per-file upload() so the bytes are encrypted right before they leave.
  */
-export async function encryptUploads(uploads: CloudUpload[]) {
-    const targets = uploads.filter(u =>
-        settings.store.encryptAttachments && enabledChannels.has(u.channelId) && u.item?.file);
-    logger.info(`uploadFiles: ${uploads.length} upload(s), ${targets.length} to encrypt`,
-        uploads.map(u => ({ channel: u.channelId, enabled: enabledChannels.has(u.channelId), hasFile: !!u.item?.file })));
-    if (targets.length === 0) return;
+export function installUploadInterception() {
+    if (originalUpload) return;
+    const proto = CloudUploadClass.prototype;
+    originalUpload = proto.upload;
+
+    proto.upload = async function (this: CloudUpload, ...args: any[]) {
+        try {
+            await encryptUpload(this);
+        } catch (e) {
+            // never fall through to uploading plaintext
+            logger.warn("Aborting upload", e);
+            throw e;
+        }
+        return originalUpload!.apply(this, args);
+    };
+}
+
+export function uninstallUploadInterception() {
+    if (originalUpload) {
+        CloudUploadClass.prototype.upload = originalUpload;
+        originalUpload = undefined;
+    }
+}
+
+/** Encrypts one upload's bytes in place. No-op outside enabled channels; throws to abort. */
+async function encryptUpload(upload: CloudUpload & { [ENCRYPTED_MARK]?: boolean; }) {
+    if (upload[ENCRYPTED_MARK]) return;
+    if (!settings.store.encryptAttachments || !enabledChannels.has(upload.channelId)) return;
+
+    const file = upload.item?.file;
+    if (!file) return;
+
+    const channel = ChannelStore.getChannel(upload.channelId);
+    if (!channel?.isPrivate()) return;
 
     const ownKey = await getOwnKey();
     if (!ownKey) {
         notify("Attachment not sent: you have no PGP keypair. Click here to open the plugin settings.", openPgpSettings);
         throw new Error("PgpEncrypt: no keypair, upload aborted");
     }
+
     const contacts = await getContacts();
+    const missing = channel.recipients.filter(id => !contacts[id]);
+    if (missing.length > 0) {
+        const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
+        notify(`Attachment not sent: missing PGP keys for ${names}.`);
+        throw new Error("PgpEncrypt: missing recipient keys, upload aborted");
+    }
 
     const signingKey = await ensureUnlocked();
     if (!signingKey) throw new Error("PgpEncrypt: key locked, upload aborted");
 
-    for (const upload of targets) {
-        const channel = ChannelStore.getChannel(upload.channelId);
-        if (!channel?.isPrivate()) continue;
+    const recipientKeys = [...channel.recipients.map(id => contacts[id].publicKey), ownKey.publicKey];
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
 
-        const missing = channel.recipients.filter(id => !contacts[id]);
-        if (missing.length > 0) {
-            const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
-            notify(`Attachment not sent: missing PGP keys for ${names}.`);
-            throw new Error("PgpEncrypt: missing recipient keys, upload aborted");
-        }
-
-        const recipientKeys = [...channel.recipients.map(id => contacts[id].publicKey), ownKey.publicKey];
-        const { file } = upload.item;
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
-
-        // .webp extension + type so the cdn serves it with CORS headers while
-        // Discord's converter leaves it alone (it only converts INTO webp)
-        upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/webp" });
-        upload.filename = ENCRYPTED_FILENAME;
-        upload.mimeType = "image/webp";
-        upload.isImage = false;
-        upload.isVideo = false;
-        // belt and suspenders: also neuter any conversion on this upload
-        upload.maybeConvertToWebP = async () => { };
-        logger.info(`encrypted upload: ${file.name} ${bytes.length}B -> ${ENCRYPTED_FILENAME} ${encryptedBytes.length}B`);
-        // alt text would sit in the message payload in plaintext
-        upload.description = null;
-    }
+    // .webp extension + type so the cdn serves it with CORS headers while
+    // Discord's converter leaves it alone (it only converts INTO webp)
+    upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/webp" });
+    upload.filename = ENCRYPTED_FILENAME;
+    upload.mimeType = "image/webp";
+    upload.isImage = false;
+    upload.isVideo = false;
+    upload.maybeConvertToWebP = async () => { };
+    // alt text would sit in the message payload in plaintext
+    upload.description = null;
+    upload[ENCRYPTED_MARK] = true;
+    logger.info(`encrypted upload: ${file.name} ${bytes.length}B -> ${ENCRYPTED_FILENAME} ${encryptedBytes.length}B`);
 }
 
 // #endregion

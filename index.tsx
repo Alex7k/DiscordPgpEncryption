@@ -9,7 +9,7 @@ import "./styles.css";
 import definePlugin from "@utils/types";
 import { SelectedChannelStore } from "@webpack/common";
 
-import { encryptUploads } from "./attachments";
+import { installUploadInterception, uninstallUploadInterception } from "./attachments";
 import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
@@ -44,19 +44,8 @@ export default definePlugin({
                 match: /let (\i)=(\i\?\i\.\i:\i\.\i);/,
                 replace: "let $1=$self.composerLimit($2);"
             }
-        },
-        // Encrypt attachment bytes before they upload (same patch point as
-        // the AnonymiseFileNames core plugin)
-        {
-            find: "async uploadFiles(",
-            replacement: {
-                match: /async uploadFiles\((\i)\){/,
-                replace: "$&await $self.encryptUploads($1);"
-            }
         }
     ],
-
-    encryptUploads,
 
     composerLimit(realLimit: number): number {
         const channelId = SelectedChannelStore.getChannelId();
@@ -80,12 +69,14 @@ export default definePlugin({
 
     async start() {
         await loadEnabledChannels();
+        installUploadInterception();
         // listener first, so an auto-unlock also decrypts anything already queued
         unsubscribeUnlock = onKeyChange(processPendingMessages);
         void tryAutoUnlock();
     },
 
     stop() {
+        uninstallUploadInterception();
         unsubscribeUnlock?.();
         unsubscribeUnlock = undefined;
         // Don't keep the decrypted private key or any plaintext state in memory
