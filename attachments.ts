@@ -148,6 +148,28 @@ async function processAttachments(channelId: string, messageId: string) {
     if (changed) updateMessage(channelId, messageId);
 }
 
+/**
+ * The CDN's cache only carries CORS headers when the cached copy was created
+ * by a CORS request; a copy cached from a plain download poisons fetch. A
+ * unique query param changes the cache key and gets a fresh, CORS-enabled
+ * response. Deterministic per attachment so retries still hit the cache.
+ */
+async function fetchCiphertext(att: AttachmentState): Promise<Uint8Array> {
+    const busted = att.url + (att.url.includes("?") ? "&" : "?") + "pgpCorsBust=" + att.id;
+
+    let lastError: unknown = new Error("download failed");
+    for (const candidate of [busted, att.url]) {
+        try {
+            const response = await fetch(candidate);
+            if (response.ok) return new Uint8Array(await response.arrayBuffer());
+            lastError = new Error(`download failed (${response.status})`);
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    throw lastError;
+}
+
 /** Fetches the ciphertext from the CDN, decrypts it, and swaps in a blob URL */
 export async function decryptAttachment(channelId: string, messageId: string, att: AttachmentState) {
     att.status = "fetching";
@@ -157,9 +179,7 @@ export async function decryptAttachment(channelId: string, messageId: string, at
         const privateKey = getSessionKey();
         if (!privateKey) throw new Error("your PGP key is locked");
 
-        const response = await fetch(att.url);
-        if (!response.ok) throw new Error(`download failed (${response.status})`);
-        const bytes = new Uint8Array(await response.arrayBuffer());
+        const bytes = await fetchCiphertext(att);
 
         let verificationKey: string | undefined;
         if (att.authorId === UserStore.getCurrentUser()?.id) {
