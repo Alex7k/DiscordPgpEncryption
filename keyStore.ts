@@ -30,7 +30,12 @@ export interface ContactRecord {
 }
 
 export const getOwnKey = () => DataStore.get<OwnKeyRecord>(OWN_KEY);
-export const setOwnKey = (record: OwnKeyRecord) => DataStore.set(OWN_KEY, record);
+
+export async function setOwnKey(record: OwnKeyRecord) {
+    await DataStore.set(OWN_KEY, record);
+    // a fresh or restored keypair may make previously undecryptable messages readable
+    for (const listener of keyListeners) listener();
+}
 
 export async function deleteOwnKey() {
     await DataStore.del(OWN_KEY);
@@ -56,12 +61,12 @@ export async function removeContact(userId: string) {
 // The decrypted private key is only ever held in memory, never persisted
 let sessionKey: PrivateKey | null = null;
 
-const unlockListeners = new Set<() => void>();
+const keyListeners = new Set<() => void>();
 
-/** Register a callback fired whenever the private key is unlocked */
-export function onUnlock(listener: () => void) {
-    unlockListeners.add(listener);
-    return () => unlockListeners.delete(listener);
+/** Register a callback fired whenever the private key is unlocked or the keypair changes */
+export function onKeyChange(listener: () => void) {
+    keyListeners.add(listener);
+    return () => keyListeners.delete(listener);
 }
 
 export const isUnlocked = () => sessionKey !== null;
@@ -77,6 +82,6 @@ export async function unlockWithPassphrase(passphrase: string): Promise<PrivateK
     if (!record) throw new Error("No PGP keypair has been generated yet");
 
     sessionKey = await unlockPrivateKey(record.privateKey, passphrase);
-    for (const listener of unlockListeners) listener();
+    for (const listener of keyListeners) listener();
     return sessionKey;
 }

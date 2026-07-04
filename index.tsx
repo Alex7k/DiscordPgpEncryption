@@ -13,7 +13,7 @@ import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
 import { MAX_SPLIT_PARTS } from "./crypto";
-import { lock, onUnlock } from "./keyStore";
+import { lock, onKeyChange } from "./keyStore";
 import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
 import { settings } from "./settings";
@@ -69,7 +69,7 @@ export default definePlugin({
     async start() {
         await loadEnabledChannels();
         // listener first, so an auto-unlock also decrypts anything already queued
-        unsubscribeUnlock = onUnlock(processPendingMessages);
+        unsubscribeUnlock = onKeyChange(processPendingMessages);
         void tryAutoUnlock();
     },
 

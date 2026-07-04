@@ -150,6 +150,8 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
     const ownKey = await getOwnKey();
     if (!ownKey) {
         messageStates.set(messageId, { type: "failed", reason: "You have no PGP keypair" });
+        // retried when a keypair is generated, imported, or unlocked
+        pendingMessages.set(messageId, channelId);
         updateMessage(channelId, messageId);
         return;
     }
@@ -193,7 +195,8 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
     } catch (e) {
         logger.info(`Failed to decrypt message ${messageId}`, e);
         messageStates.set(messageId, { type: "failed", reason: "Not encrypted to your key" });
-        pendingMessages.delete(messageId);
+        // keep it queued: importing a different keypair from backup may succeed
+        pendingMessages.set(messageId, channelId);
         updateMessage(channelId, messageId);
     }
 }
