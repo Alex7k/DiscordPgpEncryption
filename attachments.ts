@@ -19,7 +19,13 @@ import { type AttachmentState, attachmentStates, enabledChannels, pendingMessage
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
-export const ENCRYPTED_FILENAME = "encrypted.pgp";
+// The CDN only sends CORS headers for files it classifies as images by
+// extension, and its media proxy re-encodes anything else, so a plain ".pgp"
+// upload can never be fetched back for decryption. We give the ciphertext a
+// ".png" extension so the pristine cdn copy is CORS-enabled, keep isImage
+// false so Discord's client does not try to re-compress it, and always fetch
+// from the original url (never the re-encoding media proxy).
+export const ENCRYPTED_FILENAME = "encrypted.pgp.png";
 /** Bigger files are click-to-decrypt so scrolling old media doesn't eat memory */
 const AUTO_DECRYPT_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -35,7 +41,8 @@ export function mimeFromFilename(filename: string): string {
     return MIME_BY_EXT[ext] ?? "application/octet-stream";
 }
 
-export const isPgpAttachment = (attachment: { filename?: string; }) => /\.pgp$/i.test(attachment.filename ?? "");
+// matches the current ".pgp.png" as well as older ".pgp" uploads
+export const isPgpAttachment = (attachment: { filename?: string; }) => /\.pgp(\.\w+)?$/i.test(attachment.filename ?? "");
 
 function notify(body: string, onClick?: () => void) {
     showNotification({ title: "PGP Encryption", body, onClick });
@@ -80,9 +87,11 @@ export async function encryptUploads(uploads: CloudUpload[]) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
 
-        upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "application/octet-stream" });
+        // image/png extension + type so the cdn serves it with CORS headers,
+        // but isImage stays false so the client uploads the exact bytes
+        upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/png" });
         upload.filename = ENCRYPTED_FILENAME;
-        upload.mimeType = "application/octet-stream";
+        upload.mimeType = "image/png";
         upload.isImage = false;
         upload.isVideo = false;
         // alt text would sit in the message payload in plaintext
@@ -149,25 +158,13 @@ async function processAttachments(channelId: string, messageId: string) {
 }
 
 /**
- * The CDN's cache only carries CORS headers when the cached copy was created
- * by a CORS request; a copy cached from a plain download poisons fetch. A
- * unique query param changes the cache key and gets a fresh, CORS-enabled
- * response. Deterministic per attachment so retries still hit the cache.
+ * Fetches the pristine ciphertext from the cdn url. Never the proxy_url: the
+ * media proxy re-encodes attachments and would corrupt the bytes.
  */
 async function fetchCiphertext(att: AttachmentState): Promise<Uint8Array> {
-    const busted = att.url + (att.url.includes("?") ? "&" : "?") + "pgpCorsBust=" + att.id;
-
-    let lastError: unknown = new Error("download failed");
-    for (const candidate of [busted, att.url]) {
-        try {
-            const response = await fetch(candidate);
-            if (response.ok) return new Uint8Array(await response.arrayBuffer());
-            lastError = new Error(`download failed (${response.status})`);
-        } catch (e) {
-            lastError = e;
-        }
-    }
-    throw lastError;
+    const response = await fetch(att.url);
+    if (!response.ok) throw new Error(`download failed (${response.status})`);
+    return new Uint8Array(await response.arrayBuffer());
 }
 
 /** Fetches the ciphertext from the CDN, decrypts it, and swaps in a blob URL */
