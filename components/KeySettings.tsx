@@ -13,6 +13,7 @@ import { copyWithToast } from "@utils/discord";
 import { Margins } from "@utils/margins";
 import { useAwaiter } from "@utils/react";
 import { Alerts, showToast, TextArea, TextInput, UserStore, useState } from "@webpack/common";
+import type { ReactNode } from "react";
 
 import { formatFingerprint, generateKeyPair, prepareKeyImport } from "../crypto";
 import { deleteOwnKey, getOwnKey, isUnlocked, lock, OwnKeyRecord, setOwnKey } from "../keyStore";
@@ -22,6 +23,25 @@ import { ensureUnlocked } from "./UnlockModal";
 
 const mutedText = { color: "var(--text-muted)" } as const;
 const errorText = { color: "var(--status-danger, #f23f43)" } as const;
+
+function SettingsField({ title, description, className, children }: {
+    title: string;
+    description?: string;
+    className?: string;
+    children: ReactNode;
+}) {
+    return (
+        <div className={className ? `vc-pgp-settings-field ${className}` : "vc-pgp-settings-field"}>
+            <Heading className="vc-pgp-settings-label">{title}</Heading>
+            {description && (
+                <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
+                    {description}
+                </Paragraph>
+            )}
+            {children}
+        </div>
+    );
+}
 
 function GenerateKeyForm({ onGenerated }: { onGenerated: () => void; }) {
     const [userName, setUserName] = useState(() => UserStore.getCurrentUser()?.username ?? "");
@@ -65,35 +85,39 @@ function GenerateKeyForm({ onGenerated }: { onGenerated: () => void; }) {
                 keypair below so all your devices share one identity.
             </Paragraph>
 
-            <Heading className={Margins.top16}>Key name</Heading>
-            <Paragraph size="xs" style={mutedText}>Embedded in the key so contacts can identify it</Paragraph>
-            <TextInput
-                value={userName}
-                onChange={setUserName}
-            />
+            <div className="vc-pgp-settings-fields">
+                <SettingsField title="Key name" description="Embedded in the key so contacts can identify it">
+                    <TextInput
+                        value={userName}
+                        onChange={setUserName}
+                    />
+                </SettingsField>
 
-            <Heading className={Margins.top16}>Passphrase</Heading>
-            <TextInput
-                type="password"
-                value={passphrase}
-                onChange={setPassphrase}
-            />
+                <SettingsField title="Passphrase">
+                    <TextInput
+                        type="password"
+                        value={passphrase}
+                        onChange={setPassphrase}
+                    />
+                </SettingsField>
 
-            <Heading className={Margins.top16}>Confirm passphrase</Heading>
-            <TextInput
-                type="password"
-                value={confirm}
-                onChange={setConfirm}
-                error={mismatch ? "Passphrases do not match" : undefined}
-            />
+                <SettingsField title="Confirm passphrase">
+                    <TextInput
+                        type="password"
+                        value={confirm}
+                        onChange={setConfirm}
+                        error={mismatch ? "Passphrases do not match" : undefined}
+                    />
+                </SettingsField>
+            </div>
 
-            <Paragraph className={Margins.top8} size="xs" style={mutedText}>
+            <Paragraph className="vc-pgp-settings-note" size="xs" style={mutedText}>
                 There is no way to recover a lost passphrase. If you lose it, you lose access to all messages
                 encrypted to this key.
             </Paragraph>
 
             <Button
-                className={Margins.top16}
+                className="vc-pgp-settings-button"
                 disabled={!canGenerate}
                 onClick={generate}
             >
@@ -155,14 +179,14 @@ function ImportKeyForm({ hasExisting, onImported }: { hasExisting: boolean; onIm
 
     return (
         <>
-            <Heading className={Margins.top16}>Import an existing keypair</Heading>
-            <Paragraph size="xs" style={mutedText}>
+            <Heading className="vc-pgp-settings-section-title">Import an existing keypair</Heading>
+            <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
                 Paste a private key backup (the "-----BEGIN PGP PRIVATE KEY BLOCK-----" text created by
                 "Backup Private Key" on your other device) and enter the passphrase that unlocks it.
                 If you paste an unprotected key, it will be locked with the passphrase you enter here.
             </Paragraph>
 
-            <div className={Margins.top8}>
+            <div className="vc-pgp-settings-textarea">
                 <TextArea
                     value={armored}
                     onChange={setArmored}
@@ -170,12 +194,13 @@ function ImportKeyForm({ hasExisting, onImported }: { hasExisting: boolean; onIm
                 />
             </div>
 
-            <Heading className={Margins.top16}>Key passphrase</Heading>
-            <TextInput
-                type="password"
-                value={passphrase}
-                onChange={setPassphrase}
-            />
+            <SettingsField title="Key passphrase" className="vc-pgp-settings-field-after-control">
+                <TextInput
+                    type="password"
+                    value={passphrase}
+                    onChange={setPassphrase}
+                />
+            </SettingsField>
 
             {error !== null && (
                 <Paragraph className={Margins.top8} size="xs" style={errorText}>
@@ -184,7 +209,7 @@ function ImportKeyForm({ hasExisting, onImported }: { hasExisting: boolean; onIm
             )}
 
             <Button
-                className={Margins.top16}
+                className="vc-pgp-settings-button"
                 variant={hasExisting ? "dangerPrimary" : "primary"}
                 disabled={!canImport}
                 onClick={confirmImport}
@@ -312,7 +337,7 @@ export function KeySettings() {
                 ? <KeyInfo record={ownKey} onChanged={reload} />
                 : <GenerateKeyForm onGenerated={reload} />
             }
-            <Divider className={Margins.top16} />
+            <Divider className="vc-pgp-settings-divider" />
             <ImportKeyForm hasExisting={ownKey != null} onImported={reload} />
         </>
     );

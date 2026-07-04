@@ -66,3 +66,54 @@
     color: var(--text-link);
 }
 
+.vc-pgp-settings-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.vc-pgp-settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vc-pgp-settings-field-after-control {
+    margin-top: 12px;
+}
+
+.vc-h5.vc-pgp-settings-label {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 18px;
+}
+
+.vc-h5.vc-pgp-settings-section-title {
+    margin: 12px 0 6px;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 20px;
+}
+
+.vc-pgp-settings-help.vc-text-base,
+.vc-pgp-settings-note.vc-text-base {
+    line-height: 16px;
+}
+
+.vc-pgp-settings-note {
+    margin-top: 10px;
+}
+
+.vc-pgp-settings-textarea {
+    margin-top: 8px;
+}
+
+.vc-pgp-settings-button {
+    margin-top: 12px;
+}
+
+.vc-pgp-settings-divider {
+    margin: 14px 0 0;
+}
