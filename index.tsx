@@ -7,15 +7,17 @@
 import "./styles.css";
 
 import definePlugin from "@utils/types";
+import { SelectedChannelStore } from "@webpack/common";
 
 import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
+import { MAX_SPLIT_PARTS } from "./crypto";
 import { lock, onUnlock } from "./keyStore";
 import { handleLoadMessages, handleMessageCreateOrUpdate, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
 import { settings } from "./settings";
-import { clearMessageState, loadEnabledChannels } from "./state";
+import { clearMessageState, enabledChannels, loadEnabledChannels } from "./state";
 
 let unsubscribeUnlock: (() => void) | undefined;
 
@@ -29,6 +31,27 @@ export default definePlugin({
     chatBarButton: {
         icon: LockIcon,
         render: PgpChatBarIcon
+    },
+
+    // Discord blocks over-limit messages in the composer before any send hook
+    // runs, so encrypt-and-split never gets a chance. Raise the limit check in
+    // PGP-enabled channels; the pre-send handler splits the plaintext there.
+    patches: [
+        {
+            find: "Message Too Long Alert",
+            replacement: {
+                match: /let (\i)=(\i\?\i\.\i:\i\.\i);/,
+                replace: "let $1=$self.composerLimit($2);"
+            }
+        }
+    ],
+
+    composerLimit(realLimit: number): number {
+        const channelId = SelectedChannelStore.getChannelId();
+        if (!channelId || !enabledChannels.has(channelId)) return realLimit;
+        // roughly what MAX_SPLIT_PARTS encrypted parts can carry; anything
+        // beyond still gets a clear "shorten it" notification
+        return realLimit * MAX_SPLIT_PARTS / 2;
     },
 
     renderMessageAccessory: props => <PgpAccessory message={props.message} />,
