@@ -7,14 +7,16 @@
 import { MessageObject } from "@api/MessageEvents";
 import { updateMessage } from "@api/MessageUpdater";
 import { showNotification } from "@api/Notifications";
+import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
 import { ChannelStore, MessageStore, UserStore } from "@webpack/common";
 
 import { ensureUnlocked } from "./components/UnlockModal";
-import { decryptMessage, encryptMessage, getPgpKeyPayload, getPgpMessagePayload } from "./crypto";
+import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
+import { settings } from "./settings";
 import { enabledChannels, messageStates, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
@@ -30,16 +32,28 @@ function notify(body: string, onClick?: () => void) {
 
 export async function handlePreSend(channelId: string, messageObj: MessageObject): Promise<void | { cancel: boolean; }> {
     if (!enabledChannels.has(channelId)) return;
-    return encryptOutgoing(channelId, messageObj);
+    return encryptOutgoing(channelId, messageObj, false);
 }
 
 export async function handlePreEdit(channelId: string, messageId: string, messageObj: MessageObject): Promise<void | { cancel: boolean; }> {
     // Re-encrypt edits of messages that were encrypted, or any edit in an enabled channel
     if (!enabledChannels.has(channelId) && !messageStates.has(messageId)) return;
-    return encryptOutgoing(channelId, messageObj);
+    return encryptOutgoing(channelId, messageObj, true);
 }
 
-async function encryptOutgoing(channelId: string, messageObj: MessageObject): Promise<void | { cancel: boolean; }> {
+async function sendChunks(channelId: string, chunks: string[]) {
+    for (const chunk of chunks) {
+        await sendMessage(channelId, { content: chunk });
+    }
+}
+
+/** Waits for the message currently being sent to leave first, so the parts stay in order */
+function sendChunksSoon(channelId: string, chunks: string[]) {
+    if (chunks.length === 0) return;
+    setTimeout(() => void sendChunks(channelId, chunks), 300);
+}
+
+async function encryptOutgoing(channelId: string, messageObj: MessageObject, isEdit: boolean): Promise<void | { cancel: boolean; }> {
     const { content } = messageObj;
     // Don't touch empty messages, key shares, or already-encrypted content
     if (!content || getPgpKeyPayload(content) !== null || getPgpMessagePayload(content) !== null) return;
@@ -69,12 +83,39 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject): Pr
         const encrypted = await encryptMessage(content, recipientKeys, signingKey);
 
         const maxLength = getMaxMessageLength();
-        if (encrypted.length > maxLength) {
-            notify(`Message too long to encrypt: ${encrypted.length}/${maxLength} chars after encryption. Shorten it or split it up.`);
+        if (encrypted.length <= maxLength) {
+            messageObj.content = encrypted;
+            return;
+        }
+
+        if (isEdit) {
+            notify(`Edit too long to encrypt: ${encrypted.length}/${maxLength} chars after encryption. An edit cannot be split, shorten it instead.`);
             return { cancel: true };
         }
 
-        messageObj.content = encrypted;
+        const chunks = await encryptMessageChunks(content, recipientKeys, signingKey, maxLength, Math.ceil(encrypted.length / maxLength));
+        if (!chunks) {
+            notify(`Message too long to encrypt, even split into ${MAX_SPLIT_PARTS} messages. Shorten it.`);
+            return { cancel: true };
+        }
+
+        if (settings.store.autoSplit) {
+            // this message becomes part 1, the rest follow right behind it
+            messageObj.content = chunks[0];
+            sendChunksSoon(channelId, chunks.slice(1));
+            return;
+        }
+
+        let clicked = false;
+        notify(
+            `Message too long to encrypt: ${encrypted.length}/${maxLength} chars after encryption. Click to send it as ${chunks.length} separate encrypted messages.`,
+            () => {
+                if (clicked) return;
+                clicked = true;
+                void sendChunks(channelId, chunks);
+            }
+        );
+        return { cancel: true };
     } catch (e) {
         logger.error("Failed to encrypt message", e);
         notify(`Failed to encrypt message: ${e}`);

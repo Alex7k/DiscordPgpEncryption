@@ -141,6 +141,69 @@ export async function encryptMessage(text: string, recipientArmoredKeys: string[
     return PGP_MESSAGE_PREFIX + toBase64(data as Uint8Array);
 }
 
+export const MAX_SPLIT_PARTS = 8;
+
+/**
+ * Splits text on code point boundaries into parts of at most targetSize,
+ * preferring to cut at whitespace when one is close enough to the boundary
+ */
+function splitPlaintext(text: string, targetSize: number): string[] {
+    const codePoints = Array.from(text);
+    const parts: string[] = [];
+    let start = 0;
+
+    while (start < codePoints.length) {
+        let end = Math.min(start + targetSize, codePoints.length);
+        if (end < codePoints.length) {
+            const earliestCut = start + Math.ceil(targetSize * 0.8);
+            for (let i = end; i > earliestCut; i--) {
+                if (/\s/.test(codePoints[i - 1])) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        parts.push(codePoints.slice(start, end).join(""));
+        start = end;
+    }
+
+    return parts;
+}
+
+/**
+ * Encrypts text as several independent "pgp:..." messages that each fit in
+ * maxLength. Each part decrypts on its own, so a client that misses one still
+ * reads the rest. Returns null if even MAX_SPLIT_PARTS parts are not enough.
+ */
+export async function encryptMessageChunks(
+    text: string,
+    recipientArmoredKeys: string[],
+    signingKey: PrivateKey,
+    maxLength: number,
+    startParts = 2
+): Promise<string[] | null> {
+    const codePointCount = Array.from(text).length;
+
+    for (let parts = Math.max(2, startParts); parts <= MAX_SPLIT_PARTS; parts++) {
+        const pieces = splitPlaintext(text, Math.ceil(codePointCount / parts));
+        if (pieces.length > MAX_SPLIT_PARTS) return null;
+
+        const chunks: string[] = [];
+        let fits = true;
+        for (const piece of pieces) {
+            const chunk = await encryptMessage(piece, recipientArmoredKeys, signingKey);
+            if (chunk.length > maxLength) {
+                fits = false;
+                break;
+            }
+            chunks.push(chunk);
+        }
+        if (fits) return chunks;
+    }
+
+    return null;
+}
+
 export interface DecryptedMessage {
     text: string;
     /** true/false if the sender's key was available to check the signature, null if not */

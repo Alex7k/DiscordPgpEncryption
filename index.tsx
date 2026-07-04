@@ -6,24 +6,16 @@
 
 import "./styles.css";
 
-import { definePluginSettings } from "@api/Settings";
-import definePlugin, { OptionType } from "@utils/types";
+import definePlugin from "@utils/types";
 
 import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
-import { KeySettings } from "./components/KeySettings";
 import { PgpAccessory } from "./components/PgpAccessory";
 import { lock, onUnlock } from "./keyStore";
 import { handleLoadMessages, handleMessageCreateOrUpdate, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
+import { settings } from "./settings";
 import { clearMessageState, loadEnabledChannels } from "./state";
-
-const settings = definePluginSettings({
-    keyManagement: {
-        type: OptionType.COMPONENT,
-        component: KeySettings
-    }
-});
 
 let unsubscribeUnlock: (() => void) | undefined;
 
