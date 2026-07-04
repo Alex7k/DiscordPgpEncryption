@@ -22,10 +22,11 @@ const logger = new Logger("PgpEncrypt", "#7289da");
 // The CDN only sends CORS headers for files it classifies as images by
 // extension, and its media proxy re-encodes anything else, so a plain ".pgp"
 // upload can never be fetched back for decryption. We give the ciphertext a
-// ".png" extension so the pristine cdn copy is CORS-enabled, keep isImage
-// false so Discord's client does not try to re-compress it, and always fetch
-// from the original url (never the re-encoding media proxy).
-export const ENCRYPTED_FILENAME = "encrypted.pgp.png";
+// ".webp" extension: it counts as an image (cdn adds CORS) but Discord's
+// converter only turns OTHER formats INTO webp, so it leaves an already-webp
+// file's bytes untouched. We always fetch from the original cdn url, never the
+// re-encoding media proxy.
+export const ENCRYPTED_FILENAME = "encrypted.pgp.webp";
 /** Bigger files are click-to-decrypt so scrolling old media doesn't eat memory */
 const AUTO_DECRYPT_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -59,6 +60,8 @@ function notify(body: string, onClick?: () => void) {
 export async function encryptUploads(uploads: CloudUpload[]) {
     const targets = uploads.filter(u =>
         settings.store.encryptAttachments && enabledChannels.has(u.channelId) && u.item?.file);
+    logger.info(`uploadFiles: ${uploads.length} upload(s), ${targets.length} to encrypt`,
+        uploads.map(u => ({ channel: u.channelId, enabled: enabledChannels.has(u.channelId), hasFile: !!u.item?.file })));
     if (targets.length === 0) return;
 
     const ownKey = await getOwnKey();
@@ -87,16 +90,16 @@ export async function encryptUploads(uploads: CloudUpload[]) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
 
-        // image/png extension + type so the cdn serves it with CORS headers
-        upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/png" });
+        // .webp extension + type so the cdn serves it with CORS headers while
+        // Discord's converter leaves it alone (it only converts INTO webp)
+        upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/webp" });
         upload.filename = ENCRYPTED_FILENAME;
-        upload.mimeType = "image/png";
+        upload.mimeType = "image/webp";
         upload.isImage = false;
         upload.isVideo = false;
-        // Discord's client re-encodes image uploads to WebP, which would corrupt
-        // the ciphertext. Neuter that only for this upload so the exact bytes
-        // reach the cdn; normal uploads keep their conversion.
+        // belt and suspenders: also neuter any conversion on this upload
         upload.maybeConvertToWebP = async () => { };
+        logger.info(`encrypted upload: ${file.name} ${bytes.length}B -> ${ENCRYPTED_FILENAME} ${encryptedBytes.length}B`);
         // alt text would sit in the message payload in plaintext
         upload.description = null;
     }
