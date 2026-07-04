@@ -9,9 +9,10 @@ import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
 import { showToast, UserStore, useState } from "@webpack/common";
 
+import { decryptAttachment, isPgpAttachment, mimeFromFilename } from "../attachments";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
 import { getContacts, setContact } from "../keyStore";
-import { enabledChannels, messageStates } from "../state";
+import { type AttachmentState, attachmentStates, enabledChannels, messageStates } from "../state";
 import { ensureUnlocked } from "./UnlockModal";
 
 type ImportStatus = "own" | "new" | "imported" | "changed" | "invalid";
@@ -99,9 +100,83 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
     }
 }
 
+function formatSize(bytes: number): string {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function DecryptedAttachment({ att }: { att: AttachmentState; }) {
+    const mime = mimeFromFilename(att.filename ?? "");
+    const media = mime.startsWith("image/")
+        ? <img src={att.blobUrl} alt={att.filename} className="vc-pgp-media" />
+        : mime.startsWith("video/")
+            ? <video src={att.blobUrl} controls className="vc-pgp-media" />
+            : mime.startsWith("audio/")
+                ? <audio src={att.blobUrl} controls />
+                : null;
+    const sig = att.verified === true
+        ? " · ✓"
+        : att.verified === false ? " · ⚠ SIGNATURE INVALID" : "";
+
+    return (
+        <div className="vc-pgp-attachment">
+            {media}
+            <div className={att.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
+                🔒 {att.filename} ({formatSize(att.size)}){sig} · <a href={att.blobUrl} download={att.filename}>save</a>
+            </div>
+        </div>
+    );
+}
+
+function AttachmentCard({ message, att }: { message: Message; att: AttachmentState; }) {
+    switch (att.status) {
+        case "init":
+        case "fetching":
+            return <div className="vc-pgp-accessory">🔒 Decrypting attachment...</div>;
+        case "locked":
+            return (
+                <div className="vc-pgp-accessory vc-pgp-clickable" onClick={() => void ensureUnlocked()}>
+                    🔒 Encrypted attachment. Click to unlock your PGP key
+                </div>
+            );
+        case "too-large":
+            return (
+                <div
+                    className="vc-pgp-accessory vc-pgp-clickable"
+                    onClick={() => void decryptAttachment(message.channel_id, message.id, att)}
+                >
+                    🔒 Encrypted attachment ({formatSize(att.size)}). Click to decrypt
+                </div>
+            );
+        case "failed":
+            return (
+                <div
+                    className="vc-pgp-accessory vc-pgp-failed vc-pgp-clickable"
+                    onClick={() => void decryptAttachment(message.channel_id, message.id, att)}
+                >
+                    🔒 Attachment could not be decrypted: {att.reason}. Click to retry
+                </div>
+            );
+        case "decrypted":
+            return <DecryptedAttachment att={att} />;
+    }
+}
+
+function AttachmentCards({ message }: { message: Message; }) {
+    const list = attachmentStates.get(message.id);
+    if (!list?.length) return null;
+
+    return (
+        <>
+            {list.map(att => <AttachmentCard key={att.id} message={message} att={att} />)}
+        </>
+    );
+}
+
 /** "the attachment is", "stickers are", ... or null when the message has no plain media */
 function plainMediaWarning(message: Message): string | null {
-    const attachments = message.attachments?.length ?? 0;
+    // encrypted attachments are handled by their own cards, not this warning
+    const attachments = message.attachments?.filter(a => !isPgpAttachment(a)).length ?? 0;
     const stickers = message.stickerItems?.length ?? 0;
     if (attachments && stickers) return "attachments and stickers are";
     if (attachments) return attachments === 1 ? "the attachment is" : "attachments are";
@@ -166,7 +241,13 @@ export function PgpAccessory({ message }: { message?: Message; }) {
     if (!message?.id) return null;
 
     const keyPayload = getPgpKeyPayload(message.content ?? "");
-    if (keyPayload !== null) return <KeyShareCard message={message} payload={keyPayload} />;
 
-    return <StatusLine message={message} />;
+    return (
+        <>
+            {keyPayload !== null
+                ? <KeyShareCard message={message} payload={keyPayload} />
+                : <StatusLine message={message} />}
+            <AttachmentCards message={message} />
+        </>
+    );
 }

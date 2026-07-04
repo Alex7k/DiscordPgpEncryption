@@ -10,6 +10,11 @@ import { OptionType } from "@utils/types";
 import { KeySettings } from "./components/KeySettings";
 
 export const settings = definePluginSettings({
+    encryptAttachments: {
+        type: OptionType.BOOLEAN,
+        description: "Encrypt attachments sent in encrypted channels (they upload as generic encrypted.pgp files)",
+        default: true
+    },
     autoSplit: {
         type: OptionType.BOOLEAN,
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",

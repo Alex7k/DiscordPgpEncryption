@@ -50,3 +50,19 @@
 .vc-pgp-warn {
     color: var(--status-warning, #f0b232);
 }
+
+.vc-pgp-attachment {
+    margin-top: 4px;
+}
+
+.vc-pgp-media {
+    display: block;
+    max-width: 400px;
+    max-height: 350px;
+    border-radius: 8px;
+}
+
+.vc-pgp-accessory a {
+    color: var(--text-link);
+}
+

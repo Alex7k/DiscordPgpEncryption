@@ -12,12 +12,13 @@ import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
 import { ChannelStore, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
 
+import { handleEncryptedAttachments } from "./attachments";
 import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS, parsePartHeader,type PartHeader } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
 import { settings } from "./settings";
-import { enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
+import { dropAttachmentStates, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
@@ -277,6 +278,12 @@ function detachFromGroup(messageId: string) {
     }
 }
 
+/** Runs both the text and the attachment pipeline on a message */
+function processMessage(channelId: string, message: Message) {
+    void tryDecryptMessage(channelId, message);
+    handleEncryptedAttachments(channelId, message);
+}
+
 /** Retry everything that arrived while the private key was locked. Called on unlock. */
 export function processPendingMessages() {
     const entries = [...pendingMessages.entries()];
@@ -284,7 +291,7 @@ export function processPendingMessages() {
 
     for (const [messageId, channelId] of entries) {
         const message = MessageStore.getMessage(channelId, messageId);
-        if (message) void tryDecryptMessage(channelId, message);
+        if (message) processMessage(channelId, message);
     }
 }
 
@@ -321,7 +328,7 @@ export function handleMessageCreateOrUpdate(event: { channelId?: string; message
     const channelId = event.channelId ?? (message as any)?.channel_id;
     if (!message?.id || !channelId) return;
 
-    void tryDecryptMessage(channelId, message);
+    processMessage(channelId, message);
     refreshReferencedMessage(channelId, message);
 }
 
@@ -331,7 +338,7 @@ export function handleLoadMessages(event: { channelId?: string; messages?: Messa
 
     for (const message of messages) {
         if (!message?.id) continue;
-        void tryDecryptMessage(channelId, message);
+        processMessage(channelId, message);
         refreshReferencedMessage(channelId, message);
     }
 }
@@ -340,6 +347,7 @@ export function handleMessageDelete(event: { id?: string; }) {
     if (!event.id) return;
     messageStates.delete(event.id);
     pendingMessages.delete(event.id);
+    dropAttachmentStates(event.id);
     detachFromGroup(event.id);
 }
 

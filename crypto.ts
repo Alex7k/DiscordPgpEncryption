@@ -245,6 +245,59 @@ export interface DecryptedMessage {
     verified: boolean | null;
 }
 
+/**
+ * Encrypts file bytes for all recipients, signed. The original filename is
+ * stored INSIDE the encrypted literal packet, so the upload can carry a
+ * generic name without leaking what the file is.
+ */
+export async function encryptFileBytes(
+    bytes: Uint8Array,
+    filename: string,
+    recipientArmoredKeys: string[],
+    signingKey: PrivateKey
+): Promise<Uint8Array> {
+    const encryptionKeys = await Promise.all(recipientArmoredKeys.map(armoredKey => readKey({ armoredKey })));
+
+    return await encrypt({
+        message: await createMessage({ binary: bytes, filename }),
+        encryptionKeys,
+        signingKeys: signingKey,
+        format: "binary"
+    }) as Uint8Array;
+}
+
+export interface DecryptedFile {
+    data: Uint8Array;
+    filename: string;
+    verified: boolean | null;
+}
+
+/** Decrypts encrypted file bytes, recovering the embedded original filename */
+export async function decryptFileBytes(
+    bytes: Uint8Array,
+    privateKey: PrivateKey,
+    verificationArmoredKey?: string
+): Promise<DecryptedFile> {
+    const message = await readMessage({ binaryMessage: bytes });
+    const verificationKeys = verificationArmoredKey
+        ? await readKey({ armoredKey: verificationArmoredKey })
+        : undefined;
+
+    const { data, signatures, filename } = await decrypt({
+        message,
+        decryptionKeys: privateKey,
+        verificationKeys,
+        format: "binary"
+    }) as { data: Uint8Array; signatures: any[]; filename: string; };
+
+    let verified: boolean | null = null;
+    if (verificationKeys && signatures.length > 0) {
+        verified = await signatures[0].verified.then(() => true, () => false);
+    }
+
+    return { data, filename: filename || "file", verified };
+}
+
 /** Decrypts the base64 payload of a "pgp:..." message. Throws if not encrypted to this key. */
 export async function decryptMessage(b64: string, privateKey: PrivateKey, verificationArmoredKey?: string): Promise<DecryptedMessage> {
     const message = await readMessage({ binaryMessage: fromBase64(b64) });

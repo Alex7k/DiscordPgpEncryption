@@ -59,9 +59,35 @@ export const partGroups = new Map<string, PartGroup>();
 /** messageId -> groupId reverse lookup */
 export const messageGroups = new Map<string, string>();
 
+export interface AttachmentState {
+    id: string;
+    url: string;
+    size: number;
+    authorId?: string;
+    status: "init" | "locked" | "too-large" | "fetching" | "decrypted" | "failed";
+    reason?: string;
+    /** Object URL of the decrypted bytes; must be revoked when dropped */
+    blobUrl?: string;
+    filename?: string;
+    verified?: boolean | null;
+}
+
+/** messageId -> encrypted attachments of that message. Memory only. */
+export const attachmentStates = new Map<string, AttachmentState[]>();
+
+export function dropAttachmentStates(messageId: string) {
+    const list = attachmentStates.get(messageId);
+    if (!list) return;
+    for (const att of list) {
+        if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
+    }
+    attachmentStates.delete(messageId);
+}
+
 export function clearMessageState() {
     messageStates.clear();
     pendingMessages.clear();
     partGroups.clear();
     messageGroups.clear();
+    for (const messageId of [...attachmentStates.keys()]) dropAttachmentStates(messageId);
 }
