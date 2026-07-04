@@ -7,6 +7,7 @@
 import { ChatBarButton, ChatBarButtonFactory } from "@api/ChatButtons";
 import { showNotification } from "@api/Notifications";
 import { sendMessage } from "@utils/discord";
+import { useAwaiter } from "@utils/react";
 import { IconComponent } from "@utils/types";
 import { Channel } from "@vencord/discord-types";
 import { useRef, UserStore, useState } from "@webpack/common";
@@ -61,13 +62,31 @@ async function shareOwnKey(channelId: string) {
 }
 
 export const PgpChatBarIcon: ChatBarButtonFactory = ({ isMainChat, channel }) => {
-    const [, setNonce] = useState(0);
+    const [nonce, setNonce] = useState(0);
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const held = useRef(false);
 
-    if (!isMainChat || !channel?.isPrivate()) return null;
+    const enabled = channel != null && enabledChannels.has(channel.id);
 
-    const enabled = enabledChannels.has(channel.id);
+    // re-checked whenever the DM is opened, so a deleted keypair or a missing
+    // recipient key shows up instead of a false green
+    const [problem] = useAwaiter(async () => {
+        if (!enabled || !channel) return null;
+
+        const ownKey = await getOwnKey();
+        if (!ownKey) return "you have no keypair";
+
+        const contacts = await getContacts();
+        const missing = channel.recipients.filter(id => !contacts[id]);
+        if (missing.length > 0) {
+            const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
+            return `missing keys for ${names}`;
+        }
+
+        return null;
+    }, { fallbackValue: null, deps: [channel?.id, enabled, nonce] });
+
+    if (!isMainChat || !channel?.isPrivate()) return null;
 
     async function toggle() {
         if (!enabled && !await canEnable(channel)) return;
@@ -103,9 +122,12 @@ export const PgpChatBarIcon: ChatBarButtonFactory = ({ isMainChat, channel }) =>
 
     return (
         <ChatBarButton
-            tooltip={enabled
-                ? "PGP encryption is ON · click to disable · right-click to share your key · hold to open settings"
-                : "PGP encryption is OFF · click to enable · right-click to share your key · hold to open settings"}
+            tooltip={(enabled
+                ? problem
+                    ? `PGP encryption is ON but BROKEN: ${problem} · click to disable`
+                    : "PGP encryption is ON · click to disable"
+                : "PGP encryption is OFF · click to enable")
+                + " · right-click to share your key · hold to open settings"}
             onClick={() => {
                 if (consumedHold()) return;
                 void toggle();
@@ -121,7 +143,7 @@ export const PgpChatBarIcon: ChatBarButtonFactory = ({ isMainChat, channel }) =>
                 onPointerLeave: cancelHold
             }}
         >
-            <LockIcon className={enabled ? "vc-pgp-lock-enabled" : "vc-pgp-lock"} />
+            <LockIcon className={enabled ? (problem ? "vc-pgp-lock-broken" : "vc-pgp-lock-enabled") : "vc-pgp-lock"} />
         </ChatBarButton>
     );
 };

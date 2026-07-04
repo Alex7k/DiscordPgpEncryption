@@ -6,6 +6,10 @@
     color: var(--status-positive, #23a55a);
 }
 
+.vc-pgp-lock-broken {
+    color: var(--status-danger, #f23f43);
+}
+
 .vc-pgp-accessory {
     margin-top: 4px;
     font-size: 0.75rem;
