@@ -37,3 +37,8 @@
 .vc-pgp-clickable {
     cursor: pointer;
 }
+
+.vc-pgp-continuation {
+    margin-top: 0;
+    opacity: 0.6;
+}

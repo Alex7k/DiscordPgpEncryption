@@ -13,11 +13,11 @@ import { Message } from "@vencord/discord-types";
 import { ChannelStore, MessageStore, UserStore } from "@webpack/common";
 
 import { ensureUnlocked } from "./components/UnlockModal";
-import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS } from "./crypto";
+import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS, parsePartHeader,type PartHeader } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
 import { settings } from "./settings";
-import { enabledChannels, messageStates, pendingMessages } from "./state";
+import { enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
@@ -165,14 +165,92 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
 
     try {
         const { text, verified } = await decryptMessage(payload, privateKey, verificationKey);
-        messageStates.set(messageId, { type: "decrypted", verified });
         pendingMessages.delete(messageId);
-        updateMessage(channelId, messageId, { content: text });
+
+        const part = parsePartHeader(text);
+        if (part) {
+            applyPart(channelId, messageId, part, verified);
+        } else {
+            // an edit can turn a former part into a whole message again
+            detachFromGroup(messageId);
+            messageStates.set(messageId, { type: "decrypted", verified });
+            updateMessage(channelId, messageId, { content: text });
+        }
     } catch (e) {
         logger.info(`Failed to decrypt message ${messageId}`, e);
         messageStates.set(messageId, { type: "failed", reason: "Not encrypted to your key" });
         pendingMessages.delete(messageId);
         updateMessage(channelId, messageId);
+    }
+}
+
+/**
+ * Records one part of a split message. Until the group is complete the part
+ * shows its own text; once every part arrived, the full text renders in the
+ * first message and the others collapse to a small stub.
+ */
+function applyPart(channelId: string, messageId: string, part: PartHeader, verified: boolean | null) {
+    let group = partGroups.get(part.groupId);
+    if (!group) {
+        group = { total: part.total, merged: false, parts: new Map() };
+        partGroups.set(part.groupId, group);
+    }
+
+    group.parts.set(part.index, { messageId, channelId, index: part.index, text: part.text, verified });
+    messageGroups.set(messageId, part.groupId);
+
+    if (group.parts.size >= group.total) {
+        mergeGroup(group);
+    } else {
+        messageStates.set(messageId, { type: "decrypted", verified, part: { index: part.index, total: group.total, merged: false } });
+        updateMessage(channelId, messageId, { content: part.text });
+    }
+}
+
+function mergeGroup(group: PartGroup) {
+    const ordered = [...group.parts.values()].sort((a, b) => a.index - b.index);
+    const [first, ...rest] = ordered;
+
+    // one bad signature taints the whole text; unknown sender key taints "verified" down to null
+    const verified = ordered.some(p => p.verified === false) ? false
+        : ordered.every(p => p.verified === true) ? true : null;
+
+    group.merged = true;
+    messageStates.set(first.messageId, { type: "decrypted", verified, part: { index: 1, total: group.total, merged: true } });
+    updateMessage(first.channelId, first.messageId, { content: ordered.map(p => p.text).join("") });
+
+    for (const p of rest) {
+        messageStates.set(p.messageId, { type: "continuation", index: p.index, total: group.total });
+        updateMessage(p.channelId, p.messageId, { content: "" });
+    }
+}
+
+/**
+ * Removes a message from its split group (deleted, or edited into a whole
+ * message). A merged group falls back to showing each part individually.
+ */
+function detachFromGroup(messageId: string) {
+    const groupId = messageGroups.get(messageId);
+    if (!groupId) return;
+    messageGroups.delete(messageId);
+
+    const group = partGroups.get(groupId);
+    if (!group) return;
+
+    for (const [index, p] of group.parts) {
+        if (p.messageId === messageId) group.parts.delete(index);
+    }
+    if (group.parts.size === 0) {
+        partGroups.delete(groupId);
+        return;
+    }
+
+    if (group.merged) {
+        group.merged = false;
+        for (const p of group.parts.values()) {
+            messageStates.set(p.messageId, { type: "decrypted", verified: p.verified, part: { index: p.index, total: group.total, merged: false } });
+            updateMessage(p.channelId, p.messageId, { content: p.text });
+        }
     }
 }
 
@@ -206,6 +284,13 @@ export function handleLoadMessages(event: { channelId?: string; messages?: Messa
     for (const message of messages) {
         if (message?.id) void tryDecryptMessage(channelId, message);
     }
+}
+
+export function handleMessageDelete(event: { id?: string; }) {
+    if (!event.id) return;
+    messageStates.delete(event.id);
+    pendingMessages.delete(event.id);
+    detachFromGroup(event.id);
 }
 
 // #endregion

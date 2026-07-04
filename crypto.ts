@@ -144,6 +144,38 @@ export async function encryptMessage(text: string, recipientArmoredKeys: string[
 export const MAX_SPLIT_PARTS = 8;
 
 /**
+ * Parts of a split message carry a header line INSIDE the encrypted text, so
+ * Discord and non-recipients never learn that messages belong together. The
+ * receiving plugin strips it and reassembles the full text client-side.
+ */
+const PART_HEADER_RE = /^pgp-part:([0-9a-f]{8}):(\d+):(\d+)\n/;
+
+export interface PartHeader {
+    groupId: string;
+    index: number;
+    total: number;
+    /** The part's text with the header stripped */
+    text: string;
+}
+
+/** Returns the part header of a decrypted split message, or null for whole messages */
+export function parsePartHeader(decryptedText: string): PartHeader | null {
+    const match = PART_HEADER_RE.exec(decryptedText);
+    if (!match) return null;
+
+    const index = Number(match[2]);
+    const total = Number(match[3]);
+    if (index < 1 || total < 2 || index > total || total > 64) return null;
+
+    return { groupId: match[1], index, total, text: decryptedText.slice(match[0].length) };
+}
+
+function makeGroupId(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(4));
+    return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Splits text on code point boundaries into parts of at most targetSize,
  * preferring to cut at whitespace when one is close enough to the boundary
  */
@@ -173,7 +205,8 @@ function splitPlaintext(text: string, targetSize: number): string[] {
 /**
  * Encrypts text as several independent "pgp:..." messages that each fit in
  * maxLength. Each part decrypts on its own, so a client that misses one still
- * reads the rest. Returns null if even MAX_SPLIT_PARTS parts are not enough.
+ * reads the rest; the hidden part headers let receiving plugins reassemble
+ * them into one message. Returns null if even MAX_SPLIT_PARTS are not enough.
  */
 export async function encryptMessageChunks(
     text: string,
@@ -183,6 +216,7 @@ export async function encryptMessageChunks(
     startParts = 2
 ): Promise<string[] | null> {
     const codePointCount = Array.from(text).length;
+    const groupId = makeGroupId();
 
     for (let parts = Math.max(2, startParts); parts <= MAX_SPLIT_PARTS; parts++) {
         const pieces = splitPlaintext(text, Math.ceil(codePointCount / parts));
@@ -190,8 +224,9 @@ export async function encryptMessageChunks(
 
         const chunks: string[] = [];
         let fits = true;
-        for (const piece of pieces) {
-            const chunk = await encryptMessage(piece, recipientArmoredKeys, signingKey);
+        for (let i = 0; i < pieces.length; i++) {
+            const withHeader = `pgp-part:${groupId}:${i + 1}:${pieces.length}\n${pieces[i]}`;
+            const chunk = await encryptMessage(withHeader, recipientArmoredKeys, signingKey);
             if (chunk.length > maxLength) {
                 fits = false;
                 break;

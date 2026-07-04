@@ -115,15 +115,26 @@ function StatusLine({ message }: { message: Message; }) {
             );
         case "failed":
             return <div className="vc-pgp-accessory vc-pgp-failed">🔒 Could not decrypt: {state.reason}</div>;
+        case "continuation":
+            return (
+                <div className="vc-pgp-accessory vc-pgp-continuation">
+                    🔒 part {state.index}/{state.total} of the message above
+                </div>
+            );
         case "decrypted": {
             const sig = state.verified === true
                 ? " · ✓ signature verified"
                 : state.verified === false
                     ? " · ⚠ SIGNATURE INVALID"
                     : " · sender key unknown, signature not checked";
+            const part = state.part
+                ? state.part.merged
+                    ? ` · combined from ${state.part.total} messages`
+                    : ` · part ${state.part.index}/${state.part.total}`
+                : "";
             return (
                 <div className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
-                    🔒 End-to-end encrypted{sig}
+                    🔒 End-to-end encrypted{sig}{part}
                 </div>
             );
         }

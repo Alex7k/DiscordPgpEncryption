@@ -14,7 +14,7 @@ import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
 import { MAX_SPLIT_PARTS } from "./crypto";
 import { lock, onUnlock } from "./keyStore";
-import { handleLoadMessages, handleMessageCreateOrUpdate, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
+import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
 import { settings } from "./settings";
 import { clearMessageState, enabledChannels, loadEnabledChannels } from "./state";
@@ -62,6 +62,7 @@ export default definePlugin({
     flux: {
         MESSAGE_CREATE: handleMessageCreateOrUpdate,
         MESSAGE_UPDATE: handleMessageCreateOrUpdate,
+        MESSAGE_DELETE: handleMessageDelete,
         LOAD_MESSAGES_SUCCESS: handleLoadMessages
     },
 
