@@ -42,3 +42,7 @@
     margin-top: 0;
     opacity: 0.6;
 }
+
+.vc-pgp-warn {
+    color: var(--status-warning, #f0b232);
+}

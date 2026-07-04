@@ -132,9 +132,16 @@ function StatusLine({ message }: { message: Message; }) {
                     ? ` · combined from ${state.part.total} messages`
                     : ` · part ${state.part.index}/${state.part.total}`
                 : "";
+            // only the text is encrypted; anything else riding on the message is not
+            const attachments = message.attachments?.length ?? 0;
+            const stickers = message.stickerItems?.length ?? 0;
+            const plain = attachments && stickers ? "attachments and stickers"
+                : attachments ? (attachments === 1 ? "the attachment" : "attachments")
+                    : stickers ? (stickers === 1 ? "the sticker" : "stickers") : null;
             return (
                 <div className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
                     🔒 End-to-end encrypted{sig}{part}
+                    {plain && <span className="vc-pgp-warn"> · ⚠ {plain} NOT encrypted</span>}
                 </div>
             );
         }
