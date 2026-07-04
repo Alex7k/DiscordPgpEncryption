@@ -87,13 +87,16 @@ export async function encryptUploads(uploads: CloudUpload[]) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
 
-        // image/png extension + type so the cdn serves it with CORS headers,
-        // but isImage stays false so the client uploads the exact bytes
+        // image/png extension + type so the cdn serves it with CORS headers
         upload.item.file = new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/png" });
         upload.filename = ENCRYPTED_FILENAME;
         upload.mimeType = "image/png";
         upload.isImage = false;
         upload.isVideo = false;
+        // Discord's client re-encodes image uploads to WebP, which would corrupt
+        // the ciphertext. Neuter that only for this upload so the exact bytes
+        // reach the cdn; normal uploads keep their conversion.
+        upload.maybeConvertToWebP = async () => { };
         // alt text would sit in the message payload in plaintext
         upload.description = null;
     }
