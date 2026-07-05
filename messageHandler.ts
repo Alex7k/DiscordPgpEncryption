@@ -17,6 +17,7 @@ import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS, parsePartHeader,type PartHeader } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
+import { autoUnlockSettled } from "./rememberedPassphrase";
 import { settings } from "./settings";
 import { dropAttachmentStates, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
@@ -165,7 +166,12 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
 
         if (!notifiedLockedThisSession) {
             notifiedLockedThisSession = true;
-            notify("You received encrypted messages. Click to unlock your PGP key.", () => void ensureUnlocked());
+            // On startup, messages can arrive while the remembered-passphrase
+            // auto-unlock is still running; only nag if it didn't work out
+            await autoUnlockSettled();
+            if (!getSessionKey()) {
+                notify("You received encrypted messages. Click to unlock your PGP key.", () => void ensureUnlocked());
+            }
         }
         return;
     }

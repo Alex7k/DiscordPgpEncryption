@@ -88,11 +88,14 @@ export default definePlugin({
     },
 
     async start() {
-        await loadEnabledChannels();
-        installUploadInterception();
         // listener first, so an auto-unlock also decrypts anything already queued
         unsubscribeUnlock = onKeyChange(processPendingMessages);
+        // kicked off before the first await: flux events are subscribed as soon
+        // as start() yields, and incoming messages check this attempt to avoid
+        // a spurious "click to unlock" nag while it is still running
         void tryAutoUnlock();
+        await loadEnabledChannels();
+        installUploadInterception();
     },
 
     stop() {

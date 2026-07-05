@@ -52,8 +52,22 @@ export async function forgetPassphrase() {
     await DataStore.del(WRAP_KEY);
 }
 
+let lastAttempt: Promise<boolean> = Promise.resolve(false);
+
+/**
+ * Resolves once the auto-unlock attempt currently in flight (if any) has
+ * settled, so callers can hold off on "key is locked" nagging during startup.
+ */
+export function autoUnlockSettled(): Promise<boolean> {
+    return lastAttempt;
+}
+
 /** Silently unlocks from the remembered passphrase, if any. Returns true on success. */
-export async function tryAutoUnlock(): Promise<boolean> {
+export function tryAutoUnlock(): Promise<boolean> {
+    return lastAttempt = doAutoUnlock();
+}
+
+async function doAutoUnlock(): Promise<boolean> {
     try {
         const blob = await DataStore.get<RememberedBlob>(REMEMBERED);
         if (!blob) return false;
