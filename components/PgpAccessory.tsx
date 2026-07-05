@@ -7,7 +7,7 @@
 import { Button } from "@components/Button";
 import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
-import { openMediaModal, showToast, UserStore, useState } from "@webpack/common";
+import { openMediaModal, showToast, Tooltip, UserStore, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename } from "../attachments";
@@ -242,11 +242,14 @@ function GroupAttachmentCard({ message, group }: { message: Message; group: Atta
             .sort((a, b) => a - b);
         if (!held.length) return null;
         return (
-            <div
-                className="vc-pgp-accessory vc-pgp-continuation"
-                title="continuation of the encrypted file above"
-            >
-                🔒 file {held.length > 1 ? "parts" : "part"} {formatIndexRanges(held)}/{group.total} ⤴
+            <div className="vc-pgp-accessory vc-pgp-continuation">
+                <Tooltip text="continuation of the encrypted file above">
+                    {props => (
+                        <span {...props}>
+                            🔒 file {held.length > 1 ? "parts" : "part"} {formatIndexRanges(held)}/{group.total} ⤴
+                        </span>
+                    )}
+                </Tooltip>
             </div>
         );
     }
@@ -335,11 +338,14 @@ function StatusLine({ message }: { message: Message; }) {
             return <div className="vc-pgp-accessory vc-pgp-failed">🔒 Could not decrypt: {state.reason}</div>;
         case "continuation":
             return (
-                <div
-                    className="vc-pgp-accessory vc-pgp-continuation"
-                    title={`part ${state.index}/${state.total} of the encrypted message above`}
-                >
-                    🔒 message part {state.index}/{state.total} ⤴
+                <div className="vc-pgp-accessory vc-pgp-continuation">
+                    <Tooltip text={`part ${state.index}/${state.total} of the encrypted message above`}>
+                        {props => (
+                            <span {...props}>
+                                🔒 message part {state.index}/{state.total} ⤴
+                            </span>
+                        )}
+                    </Tooltip>
                 </div>
             );
         case "decrypted": {
@@ -352,18 +358,21 @@ function StatusLine({ message }: { message: Message; }) {
                 + (state.verified === true ? " · signature verified" : "")
                 + (state.part?.merged ? ` · combined from ${state.part.total} messages` : "");
             const sig = state.verified === false
-                ? " ⚠ SIGNATURE INVALID — not signed by the sender's trusted key"
+                ? <> ⚠ SIGNATURE INVALID — not signed by the sender's trusted key</>
                 : state.verified === null
-                    ? " · sender key unknown, signature not checked"
-                    : " ✓";
+                    ? <> · sender key unknown, signature not checked</>
+                    : <> <span className="vc-pgp-verified">✓</span></>;
             // only the text is encrypted; anything else riding on the message is not
             const plain = plainMediaWarning(message);
             return (
-                <div
-                    className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}
-                    title={tooltip}
-                >
-                    🔒{sig}{part}
+                <div className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
+                    <Tooltip text={tooltip}>
+                        {props => (
+                            <span {...props}>
+                                <span className="vc-pgp-e2ee">e2ee</span>{sig}{part}
+                            </span>
+                        )}
+                    </Tooltip>
                     {plain && <span className="vc-pgp-warn"> · ⚠ {plain} NOT encrypted</span>}
                 </div>
             );

@@ -117,6 +117,16 @@
     color: var(--status-warning, #f0b232);
 }
 
+.vc-pgp-verified {
+    color: var(--status-positive, #23a55a);
+    font-weight: 600;
+}
+
+.vc-pgp-e2ee {
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
 .vc-pgp-attachment {
     margin-top: 4px;
 }
