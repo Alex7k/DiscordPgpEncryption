@@ -84,10 +84,68 @@ export function dropAttachmentStates(messageId: string) {
     attachmentStates.delete(messageId);
 }
 
+export interface AttachmentGroupPart {
+    messageId: string;
+    channelId: string;
+    attachmentId: string;
+    url: string;
+    /** Encrypted size of this part */
+    size: number;
+}
+
+/** One file that was split into several encrypted part uploads */
+export interface AttachmentGroup {
+    id: string;
+    total: number;
+    authorId?: string;
+    /** By part index (1-based, from the outer filename hint) */
+    parts: Map<number, AttachmentGroupPart>;
+    status: "waiting" | "locked" | "too-large" | "fetching" | "decrypted" | "failed";
+    reason?: string;
+    /** 1-based index of the part currently being fetched and decrypted */
+    progress?: number;
+    /** Sum of the encrypted part sizes until decrypted, then the file's size */
+    size: number;
+    /** Object URL of the reassembled decrypted file; must be revoked when dropped */
+    blobUrl?: string;
+    filename?: string;
+    verified?: boolean | null;
+}
+
+/** groupId -> split attachment reassembly state. Memory only. */
+export const attachmentGroups = new Map<string, AttachmentGroup>();
+
+/** messageId -> ids of the groups that message holds parts of */
+export const messageAttachmentGroups = new Map<string, Set<string>>();
+
+/** Forgets a deleted message's parts; a group with no parts left is dropped */
+export function dropMessageFromGroups(messageId: string) {
+    const groupIds = messageAttachmentGroups.get(messageId);
+    if (!groupIds) return;
+    messageAttachmentGroups.delete(messageId);
+
+    for (const groupId of groupIds) {
+        const group = attachmentGroups.get(groupId);
+        if (!group) continue;
+        for (const [index, part] of group.parts) {
+            if (part.messageId === messageId) group.parts.delete(index);
+        }
+        if (group.parts.size === 0) {
+            if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
+            attachmentGroups.delete(groupId);
+        }
+    }
+}
+
 export function clearMessageState() {
     messageStates.clear();
     pendingMessages.clear();
     partGroups.clear();
     messageGroups.clear();
     for (const messageId of [...attachmentStates.keys()]) dropAttachmentStates(messageId);
+    for (const group of attachmentGroups.values()) {
+        if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
+    }
+    attachmentGroups.clear();
+    messageAttachmentGroups.clear();
 }

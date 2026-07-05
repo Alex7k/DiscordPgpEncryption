@@ -15,6 +15,11 @@ export const settings = definePluginSettings({
         description: "Encrypt attachments sent in encrypted channels (they upload as generic encrypted.pgp files)",
         default: true
     },
+    splitAttachments: {
+        type: OptionType.BOOLEAN,
+        description: "Split attachments larger than your upload size limit into multiple encrypted parts, sent across as many messages as needed. When off, over-limit files are blocked by Discord as usual",
+        default: true
+    },
     autoSplit: {
         type: OptionType.BOOLEAN,
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",

@@ -9,10 +9,10 @@ import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
 import { openMediaModal, showToast, UserStore, useState } from "@webpack/common";
 
-import { decryptAttachment, isPgpAttachment, mimeFromFilename } from "../attachments";
+import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename } from "../attachments";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
 import { getContacts, setContact } from "../keyStore";
-import { type AttachmentState, attachmentStates, enabledChannels, messageStates } from "../state";
+import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, messageStates } from "../state";
 import { ensureUnlocked } from "./UnlockModal";
 
 type ImportStatus = "own" | "new" | "imported" | "changed" | "invalid";
@@ -105,7 +105,15 @@ function formatSize(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-function DecryptedAttachment({ att }: { att: AttachmentState; }) {
+/** The fields DecryptedAttachment needs; both single attachments and reassembled groups have them */
+interface DecryptedMedia {
+    blobUrl?: string;
+    filename?: string;
+    size: number;
+    verified?: boolean | null;
+}
+
+function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
     // image dimensions are needed to open Discord's native viewer; captured on load
     const [dims, setDims] = useState<{ width: number; height: number; } | null>(null);
     const mime = mimeFromFilename(att.filename ?? "");
@@ -190,13 +198,77 @@ function AttachmentCard({ message, att }: { message: Message; att: AttachmentSta
     }
 }
 
+function GroupAttachmentCard({ message, group }: { message: Message; group: AttachmentGroup; }) {
+    // the full card renders once, on the message holding the earliest loaded
+    // part; other part messages collapse to a small stub
+    const lowestLoaded = Math.min(...group.parts.keys());
+    if (group.parts.get(lowestLoaded)?.messageId !== message.id) {
+        const held = [...group.parts.entries()]
+            .filter(([, part]) => part.messageId === message.id)
+            .map(([index]) => index)
+            .sort((a, b) => a - b);
+        if (!held.length) return null;
+        return (
+            <div className="vc-pgp-accessory vc-pgp-continuation">
+                🔒 part {held.join(", ")}/{group.total} of the split attachment above
+            </div>
+        );
+    }
+
+    switch (group.status) {
+        case "waiting":
+            return (
+                <div className="vc-pgp-accessory">
+                    🔒 Encrypted attachment in {group.total} parts · {group.parts.size}/{group.total} received
+                </div>
+            );
+        case "locked":
+            return (
+                <div className="vc-pgp-accessory vc-pgp-clickable" onClick={() => void ensureUnlocked()}>
+                    🔒 Encrypted attachment ({group.total} parts). Click to unlock your PGP key
+                </div>
+            );
+        case "too-large":
+            return (
+                <div
+                    className="vc-pgp-accessory vc-pgp-clickable"
+                    onClick={() => void decryptAttachmentGroup(group)}
+                >
+                    🔒 Encrypted attachment ({formatSize(group.size)}, {group.total} parts). Click to decrypt
+                </div>
+            );
+        case "fetching":
+            return (
+                <div className="vc-pgp-accessory">
+                    🔒 Decrypting attachment{group.progress ? ` · part ${group.progress}/${group.total}` : ""}...
+                </div>
+            );
+        case "failed":
+            return (
+                <div
+                    className="vc-pgp-accessory vc-pgp-failed vc-pgp-clickable"
+                    onClick={() => void decryptAttachmentGroup(group)}
+                >
+                    🔒 Attachment could not be decrypted: {group.reason}. Click to retry
+                </div>
+            );
+        case "decrypted":
+            return <DecryptedAttachment att={group} />;
+    }
+}
+
 function AttachmentCards({ message }: { message: Message; }) {
-    const list = attachmentStates.get(message.id);
-    if (!list?.length) return null;
+    const list = attachmentStates.get(message.id) ?? [];
+    const groupIds = messageAttachmentGroups.get(message.id);
+    const groups = groupIds
+        ? [...groupIds].map(id => attachmentGroups.get(id)).filter((g): g is AttachmentGroup => !!g)
+        : [];
+    if (!list.length && !groups.length) return null;
 
     return (
         <>
             {list.map(att => <AttachmentCard key={att.id} message={message} att={att} />)}
+            {groups.map(group => <GroupAttachmentCard key={group.id} message={message} group={group} />)}
         </>
     );
 }

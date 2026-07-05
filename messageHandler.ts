@@ -12,14 +12,14 @@ import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
 import { ChannelStore, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
 
-import { handleEncryptedAttachments } from "./attachments";
+import { handleEncryptedAttachments, maybeSendPendingParts } from "./attachments";
 import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptMessage, encryptMessage, encryptMessageChunks, getPgpKeyPayload, getPgpMessagePayload, MAX_SPLIT_PARTS, parsePartHeader,type PartHeader } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
 import { autoUnlockSettled } from "./rememberedPassphrase";
 import { settings } from "./settings";
-import { dropAttachmentStates, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
+import { dropAttachmentStates, dropMessageFromGroups, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
@@ -336,6 +336,9 @@ export function handleMessageCreateOrUpdate(event: { channelId?: string; message
 
     processMessage(channelId, message);
     refreshReferencedMessage(channelId, message);
+    // a split attachment's part 1 arriving means its draft was really sent, so
+    // any overflow parts waiting for that group can follow now
+    maybeSendPendingParts(channelId, message);
 }
 
 export function handleLoadMessages(event: { channelId?: string; messages?: Message[]; }) {
@@ -354,6 +357,7 @@ export function handleMessageDelete(event: { id?: string; }) {
     messageStates.delete(event.id);
     pendingMessages.delete(event.id);
     dropAttachmentStates(event.id);
+    dropMessageFromGroups(event.id);
     detachFromGroup(event.id);
 }
 

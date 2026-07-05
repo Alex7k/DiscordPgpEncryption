@@ -56,8 +56,33 @@ export default definePlugin({
                 match: /getSrc\(\i\)\{/,
                 replace: "$&var vcPgpSrc=$self.getBlobSrc(this?.props);if(vcPgpSrc)return vcPgpSrc;"
             }
+        },
+        // Discord rejects an over-limit file at attach time with a Nitro upsell,
+        // before our upload() hook can encrypt and split it. Two gates run: a
+        // per-file one (maxFileSize(guildId)) and a total-message-size one
+        // (a hardcoded 500 MB cap). Lift both in PGP-enabled channels so the
+        // file attaches, then the upload interception splits it into parts.
+        {
+            find: '"getGuildMaxFileSize"',
+            replacement: [
+                {
+                    match: /(function \i\(\i\)\{let \i=\i\.\i\.getCurrentUser\(\),\i=\i\.\i\.getUserMaxFileSize\(\i\);)/,
+                    replace: "$1if($self.uploadLimitBypassed())return Number.MAX_SAFE_INTEGER;"
+                },
+                {
+                    match: /(function \i\(\)\{let \i=\i\.\i\.getCurrentUser\(\);return null!=\i&&\i\.isStaff\(\),)(524288e3\})/,
+                    replace: "$1$self.uploadLimitBypassed()?Number.MAX_SAFE_INTEGER:$2"
+                }
+            ]
         }
     ],
+
+    /** True while an oversized upload in the active channel should be allowed through to be split */
+    uploadLimitBypassed(): boolean {
+        if (!settings.store.encryptAttachments || !settings.store.splitAttachments) return false;
+        const channelId = SelectedChannelStore.getChannelId();
+        return !!channelId && enabledChannels.has(channelId);
+    },
 
     getBlobSrc(props?: { src?: unknown; }): string | undefined {
         try {

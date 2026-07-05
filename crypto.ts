@@ -170,7 +170,7 @@ export function parsePartHeader(decryptedText: string): PartHeader | null {
     return { groupId: match[1], index, total, text: decryptedText.slice(match[0].length) };
 }
 
-function makeGroupId(): string {
+export function makeGroupId(): string {
     const bytes = crypto.getRandomValues(new Uint8Array(4));
     return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
 }
@@ -243,6 +243,45 @@ export interface DecryptedMessage {
     text: string;
     /** true/false if the sender's key was available to check the signature, null if not */
     verified: boolean | null;
+}
+
+// A file is split into at most this many parts, sent 10 per message across as
+// many follow-up messages as needed. At a 50 MB per-file limit that is ~25 GB;
+// at Nitro's 500 MB, ~256 GB. The ceiling only guards against absurd part
+// counts (each part is a separate upload + a fraction of a Discord message).
+export const MAX_ATTACHMENT_PARTS = 512;
+
+/**
+ * Metadata for one part of a split attachment, carried in the encrypted
+ * literal's filename field so it is signed and hidden from Discord. The outer
+ * upload filenames hint the same grouping for the UI before decryption, but
+ * only this copy is trusted when reassembling: renaming the uploads cannot
+ * reorder or swap parts.
+ */
+export function makeFilePartMeta(groupId: string, index: number, total: number, filename: string): string {
+    return `pgp-part:${groupId}:${index}:${total}:${filename}`;
+}
+
+const FILE_PART_META_RE = /^pgp-part:([0-9a-f]{8}):(\d+):(\d+):([\s\S]*)$/;
+
+export interface FilePartMeta {
+    groupId: string;
+    index: number;
+    total: number;
+    /** The original filename of the whole file */
+    filename: string;
+}
+
+/** Returns the part metadata of a decrypted attachment part, or null for whole files */
+export function parseFilePartMeta(name: string): FilePartMeta | null {
+    const match = FILE_PART_META_RE.exec(name);
+    if (!match) return null;
+
+    const index = Number(match[2]);
+    const total = Number(match[3]);
+    if (index < 1 || total < 2 || index > total || total > MAX_ATTACHMENT_PARTS) return null;
+
+    return { groupId: match[1], index, total, filename: match[4] || "file" };
 }
 
 /**
