@@ -64,6 +64,7 @@
 
 .vc-pgp-accessory a {
     color: var(--text-link);
+    cursor: pointer;
 }
 
 .vc-pgp-settings-fields {

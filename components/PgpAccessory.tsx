@@ -7,7 +7,7 @@
 import { Button } from "@components/Button";
 import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
-import { showToast, UserStore, useState } from "@webpack/common";
+import { openMediaModal, showToast, UserStore, useState } from "@webpack/common";
 
 import { decryptAttachment, isPgpAttachment, mimeFromFilename } from "../attachments";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
@@ -106,10 +106,37 @@ function formatSize(bytes: number): string {
 }
 
 function DecryptedAttachment({ att }: { att: AttachmentState; }) {
+    // image dimensions are needed to open Discord's native viewer; captured on load
+    const [dims, setDims] = useState<{ width: number; height: number; } | null>(null);
     const mime = mimeFromFilename(att.filename ?? "");
-    const media = mime.startsWith("image/")
-        ? <img src={att.blobUrl} alt={att.filename} className="vc-pgp-media" />
-        : mime.startsWith("video/")
+    const isImage = mime.startsWith("image/");
+    const isVideo = mime.startsWith("video/");
+
+    function openViewer() {
+        if (!att.blobUrl || !dims) return;
+        openMediaModal({
+            items: [{
+                url: att.blobUrl,
+                original: att.blobUrl,
+                type: "IMAGE",
+                alt: att.filename,
+                width: dims.width,
+                height: dims.height
+            }]
+        });
+    }
+
+    // Images open Discord's native viewer on click; video/audio use standard
+    // HTML5 players (Discord's video modal rewrites blob URLs through the proxy)
+    const media = isImage
+        ? <img
+            src={att.blobUrl}
+            alt={att.filename}
+            className="vc-pgp-media vc-pgp-clickable"
+            onLoad={(e: any) => setDims({ width: e.target.naturalWidth, height: e.target.naturalHeight })}
+            onClick={openViewer}
+        />
+        : isVideo
             ? <video src={att.blobUrl} controls className="vc-pgp-media" />
             : mime.startsWith("audio/")
                 ? <audio src={att.blobUrl} controls />
@@ -122,7 +149,8 @@ function DecryptedAttachment({ att }: { att: AttachmentState; }) {
         <div className="vc-pgp-attachment">
             {media}
             <div className={att.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
-                🔒 {att.filename} ({formatSize(att.size)}){sig} · <a href={att.blobUrl} download={att.filename}>save</a>
+                🔒 {att.filename} ({formatSize(att.size)}){sig}
+                {" · "}<a href={att.blobUrl} download={att.filename} onClick={e => e.stopPropagation()}>save</a>
             </div>
         </div>
     );
