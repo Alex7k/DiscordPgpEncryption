@@ -2,6 +2,16 @@
 
 A Vencord userplugin for sending and receiving PGP encrypted Discord DMs.
 
+## Quick install/update (Windows)
+
+`install.ps1` does everything below automatically. It installs any missing prerequisites, clones or updates Vencord and this plugin (in `%USERPROFILE%\Vencord` by default), builds, and injects. It is safe to re-run any time to update. From any PowerShell window:
+
+```powershell
+irm https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1 | iex
+```
+
+Or, if you already have the plugin checkout, just run `install.ps1` from it.
+
 ## Prerequisites
 
 You need Git, Node.js 22 or newer, and pnpm. Pick the command block for your OS:
