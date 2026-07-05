@@ -44,8 +44,28 @@ export default definePlugin({
                 match: /let (\i)=(\i\?\i\.\i:\i\.\i);/,
                 replace: "let $1=$self.composerLimit($2);"
             }
+        },
+        // The media viewer's image component runs every src through getSrc(),
+        // which appends resize/format query params. A blob: URL with a query
+        // string never resolves, so decrypted images showed up blank in the
+        // viewer. Same patch site as core FixImagesQuality; getSrc is sometimes
+        // invoked without a receiver, hence this?. and the $self helper.
+        {
+            find: ".handleImageLoad)",
+            replacement: {
+                match: /getSrc\(\i\)\{/,
+                replace: "$&var vcPgpSrc=$self.getBlobSrc(this?.props);if(vcPgpSrc)return vcPgpSrc;"
+            }
         }
     ],
+
+    getBlobSrc(props?: { src?: unknown; }): string | undefined {
+        try {
+            const { src } = props ?? {};
+            if (typeof src === "string" && src.startsWith("blob:")) return src;
+        } catch { }
+        return undefined;
+    },
 
     composerLimit(realLimit: number): number {
         const channelId = SelectedChannelStore.getChannelId();
