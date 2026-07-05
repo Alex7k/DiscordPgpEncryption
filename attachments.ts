@@ -145,7 +145,8 @@ export function handleEncryptedAttachments(channelId: string, message: Message) 
         attachmentStates.set(message.id, list);
     }
     for (const attachment of encrypted) {
-        if (!list.some(s => s.id === attachment.id)) {
+        const state = list.find(s => s.id === attachment.id);
+        if (!state) {
             list.push({
                 id: attachment.id,
                 url: attachment.url,
@@ -153,6 +154,8 @@ export function handleEncryptedAttachments(channelId: string, message: Message) 
                 authorId: message.author?.id,
                 status: "init"
             });
+        } else if (state.status === "decrypted") {
+            queueMicrotask(() => stripAttachment(channelId, message.id, attachment.id));
         }
     }
 
@@ -222,6 +225,7 @@ export async function decryptAttachment(channelId: string, messageId: string, at
         if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
         att.blobUrl = URL.createObjectURL(new Blob([data as unknown as BlobPart], { type: mimeFromFilename(filename) }));
         att.filename = filename;
+        att.size = data.length;
         att.verified = verified;
         att.status = "decrypted";
 
