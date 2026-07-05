@@ -1,5 +1,5 @@
 .vc-pgp-lock {
-    color: var(--interactive-normal);
+    color: var(--interactive-icon-default, var(--interactive-normal));
 }
 
 .vc-pgp-lock-enabled {
@@ -23,7 +23,7 @@
     gap: 6px;
     padding: 8px 12px;
     border-radius: 8px;
-    background: var(--background-secondary);
+    background: var(--background-base-lower, var(--background-secondary));
     width: fit-content;
     max-width: 100%;
 }
@@ -44,7 +44,73 @@
 
 .vc-pgp-continuation {
     margin-top: 0;
-    opacity: 0.6;
+    opacity: 0.45;
+}
+
+.vc-pgp-file-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+    margin-top: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle, var(--background-modifier-accent));
+    border-radius: 8px;
+    background: var(--background-base-lower, var(--background-secondary));
+    width: fit-content;
+    min-width: 280px;
+    max-width: 100%;
+}
+
+.vc-pgp-file-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.vc-pgp-file-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.vc-pgp-file-title {
+    font-size: 0.875rem;
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-pgp-file-title.vc-pgp-failed {
+    color: var(--status-danger, #f23f43);
+}
+
+.vc-pgp-file-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.vc-pgp-file-sub a {
+    color: var(--text-link);
+    cursor: pointer;
+}
+
+.vc-pgp-part-link {
+    margin-left: 4px;
+}
+
+.vc-pgp-progress-track {
+    height: 4px;
+    margin-top: 4px;
+    border-radius: 2px;
+    background: var(--border-subtle, var(--background-modifier-accent));
+    overflow: hidden;
+}
+
+.vc-pgp-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--brand-500, #5865f2);
+    transition: width 0.2s;
 }
 
 .vc-pgp-warn {

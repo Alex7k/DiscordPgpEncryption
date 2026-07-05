@@ -8,9 +8,9 @@ import { updateMessage } from "@api/MessageUpdater";
 import { showNotification } from "@api/Notifications";
 import { Logger } from "@utils/Logger";
 import { CloudUpload, Message, MessageAttachment } from "@vencord/discord-types";
-import type { PrivateKey } from "openpgp";
 import { findLazy } from "@webpack";
 import { ChannelStore, MessageStore, RestAPI, UserStore } from "@webpack/common";
+import type { PrivateKey } from "openpgp";
 
 import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptFileBytes, encryptFileBytes, makeFilePartMeta, makeGroupId, MAX_ATTACHMENT_PARTS, parseFilePartMeta } from "./crypto";
@@ -365,42 +365,44 @@ async function sendFilesMessage(channelId: string, files: File[]) {
 // #region Decrypt (incoming attachments)
 
 export function handleEncryptedAttachments(channelId: string, message: Message) {
-    const encrypted = (message.attachments ?? []).filter(isPgpAttachment);
-    if (encrypted.length === 0) return;
+    for (const attachment of message.attachments ?? []) {
+        if (!isPgpAttachment(attachment)) continue;
 
-    const touchedGroups = new Set<AttachmentGroup>();
-    let hasSingles = false;
-
-    for (const attachment of encrypted) {
         const part = parsePartFilename(attachment.filename);
         if (part) {
-            const group = registerGroupPart(channelId, message, attachment, part);
-            if (group) touchedGroups.add(group);
-            continue;
+            // a mismatched or duplicate part is not registered; its raw file
+            // card stays visible instead of silently disappearing
+            if (!registerGroupPart(channelId, message, attachment, part)) continue;
+        } else {
+            let list = attachmentStates.get(message.id);
+            if (!list) attachmentStates.set(message.id, list = []);
+            if (!list.some(s => s.id === attachment.id)) {
+                list.push({
+                    id: attachment.id,
+                    url: attachment.url,
+                    size: attachment.size ?? 0,
+                    authorId: message.author?.id,
+                    status: "init"
+                });
+            }
         }
 
-        hasSingles = true;
-        let list = attachmentStates.get(message.id);
-        if (!list) {
-            list = [];
-            attachmentStates.set(message.id, list);
-        }
-        const state = list.find(s => s.id === attachment.id);
-        if (!state) {
-            list.push({
-                id: attachment.id,
-                url: attachment.url,
-                size: attachment.size ?? 0,
-                authorId: message.author?.id,
-                status: "init"
-            });
-        } else if (state.status === "decrypted") {
-            queueMicrotask(() => stripAttachment(channelId, message.id, attachment.id));
-        }
+        // The raw ciphertext file card is useless to the reader; from here on
+        // the accessory card represents the attachment in every state (and
+        // links the ciphertext on failure). Deferred so it never runs inside
+        // the dispatch that delivered the message.
+        const attachmentId = attachment.id;
+        queueMicrotask(() => stripAttachment(channelId, message.id, attachmentId));
     }
 
-    if (hasSingles) void processAttachments(channelId, message.id);
-    for (const group of touchedGroups) void processGroup(group);
+    // Process from the registered state, not the attachments seen this pass:
+    // the retry after unlocking passes the STORED message, whose raw encrypted
+    // attachments were already stripped on an earlier pass.
+    if (attachmentStates.has(message.id)) void processAttachments(channelId, message.id);
+    for (const groupId of messageAttachmentGroups.get(message.id) ?? []) {
+        const group = attachmentGroups.get(groupId);
+        if (group) void processGroup(group);
+    }
 }
 
 async function processAttachments(channelId: string, messageId: string) {
@@ -469,8 +471,6 @@ export async function decryptAttachment(channelId: string, messageId: string, at
         att.size = data.length;
         att.verified = verified;
         att.status = "decrypted";
-
-        stripAttachment(channelId, messageId, att.id);
     } catch (e) {
         logger.info(`Failed to decrypt attachment ${att.id}`, e);
         att.status = "failed";
@@ -479,7 +479,7 @@ export async function decryptAttachment(channelId: string, messageId: string, at
     updateMessage(channelId, messageId);
 }
 
-/** Removes the raw encrypted.pgp file card; the accessory renders the content instead */
+/** Removes a raw encrypted-file card from the message; the accessory card represents it instead */
 function stripAttachment(channelId: string, messageId: string, attachmentId: string) {
     const stored = MessageStore.getMessage(channelId, messageId);
     if (!stored?.attachments) return;
@@ -520,25 +520,28 @@ function registerGroupPart(
     }
 
     const existing = group.parts.get(info.index);
-    if (!existing) {
-        group.parts.set(info.index, {
-            messageId: message.id,
-            channelId,
-            attachmentId: attachment.id,
-            url: attachment.url,
-            size: attachment.size ?? 0
-        });
-        if (group.status !== "decrypted") {
-            group.size = [...group.parts.values()].reduce((sum, p) => sum + p.size, 0);
-        }
-
-        let groupIds = messageAttachmentGroups.get(message.id);
-        if (!groupIds) messageAttachmentGroups.set(message.id, groupIds = new Set());
-        groupIds.add(group.id);
-    } else if (group.status === "decrypted") {
-        // a MESSAGE_UPDATE re-added the raw part attachment; strip it again
-        queueMicrotask(() => stripAttachment(channelId, message.id, attachment.id));
+    if (existing) {
+        // the same attachment re-announced (MESSAGE_UPDATE) is fine; a
+        // different upload claiming an occupied slot is not registered
+        return existing.messageId === message.id && existing.attachmentId === attachment.id
+            ? group
+            : null;
     }
+
+    group.parts.set(info.index, {
+        messageId: message.id,
+        channelId,
+        attachmentId: attachment.id,
+        url: attachment.url,
+        size: attachment.size ?? 0
+    });
+    if (group.status !== "decrypted") {
+        group.size = [...group.parts.values()].reduce((sum, p) => sum + p.size, 0);
+    }
+
+    let groupIds = messageAttachmentGroups.get(message.id);
+    if (!groupIds) messageAttachmentGroups.set(message.id, groupIds = new Set());
+    groupIds.add(group.id);
 
     return group;
 }
@@ -635,10 +638,6 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
         group.verified = signatures.some(v => v === false) ? false
             : signatures.every(v => v === true) ? true : null;
         group.status = "decrypted";
-
-        for (const part of group.parts.values()) {
-            stripAttachment(part.channelId, part.messageId, part.attachmentId);
-        }
     } catch (e) {
         logger.info(`Failed to decrypt attachment group ${group.id}`, e);
         group.status = "failed";
