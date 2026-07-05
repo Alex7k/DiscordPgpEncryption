@@ -10,7 +10,8 @@ import { showNotification } from "@api/Notifications";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
-import { ChannelStore, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
+import { findByPropsLazy } from "@webpack";
+import { ChannelStore, DraftType, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
 
 import { handleEncryptedAttachments, maybeSendPendingParts } from "./attachments";
 import { ensureUnlocked } from "./components/UnlockModal";
@@ -22,6 +23,8 @@ import { settings } from "./settings";
 import { dropAttachmentStates, dropMessageFromGroups, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
+
+const DraftManager = findByPropsLazy("clearDraft", "saveDraft");
 
 const getMaxMessageLength = () =>
     UserStore.getCurrentUser()?.premiumType === 2 ? 4000 : 2000;
@@ -114,6 +117,9 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject, isE
             () => {
                 if (clicked) return;
                 clicked = true;
+                // the cancelled send left the text sitting in the composer;
+                // clear it so clicking feels like the send going through
+                DraftManager.clearDraft(channelId, DraftType.ChannelMessage);
                 void sendChunks(channelId, chunks);
             }
         );

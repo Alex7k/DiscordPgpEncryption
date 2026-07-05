@@ -23,7 +23,7 @@ export const settings = definePluginSettings({
     autoSplit: {
         type: OptionType.BOOLEAN,
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",
-        default: false
+        default: true
     },
     keyManagement: {
         type: OptionType.COMPONENT,
