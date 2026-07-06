@@ -1,5 +1,7 @@
 # PgpEncrypt
 
+A Vencord userplugin for seamlessly sending and receiving PGP-encrypted Discord DMs.
+
 With plugin:
 
 ![Screenshot of a DM with the plugin](img/with_plugin.png)
@@ -7,8 +9,6 @@ With plugin:
 Without plugin (not decrypted):
 
 ![Screenshot of a DM with the plugin](img/without_plugin.png)
-
-A Vencord userplugin for sending and receiving PGP encrypted Discord DMs.
 
 ## Features
 
