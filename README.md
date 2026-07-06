@@ -1,16 +1,35 @@
 # PgpEncrypt
 
+With plugin:
+
+![Screenshot of a DM with the plugin](img/with_plugin.png)
+
+Without plugin (not decrypted):
+
+![Screenshot of a DM with the plugin](img/without_plugin.png)
+
 A Vencord userplugin for sending and receiving PGP encrypted Discord DMs.
+
+## Features
+
+- Seamless end-to-end encryption in DMs using PGP
+- Per-DM toggle
+- PGP signatures
+- Encrypted attachments
+- Long message splitting
+- Large file splitting - large files are split into multiple files to circumvent file size limits. it's reassembled automatically on clients.
+- Key management
+- Key sharing and trust - share your public key by right clicking the lock icon
 
 ## Quick install/update (Windows)
 
-`install.ps1` does everything below automatically. It installs any missing prerequisites, clones or updates Vencord and this plugin (in `%USERPROFILE%\Vencord` by default), builds, and injects. It is safe to re-run any time to update. From any PowerShell window:
+`install.ps1` automatically installs and injects Vencord with this plugin. It is safe to re-run any time to update. From any PowerShell window:
 
 ```powershell
 irm https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1 | iex
 ```
 
-Or, if you already have the plugin checkout, just run `install.ps1` from it.
+After running this, start discord and enable the `PgpEncrypt` plugin in Vencord settings.
 
 ## Prerequisites
 
