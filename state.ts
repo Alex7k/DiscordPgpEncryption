@@ -22,6 +22,11 @@ export async function setChannelEnabled(channelId: string, enabled: boolean) {
     await DataStore.set(ENABLED_CHANNELS, [...enabledChannels]);
 }
 
+export async function clearEnabledChannels() {
+    enabledChannels.clear();
+    await DataStore.del(ENABLED_CHANNELS);
+}
+
 export type MessagePgpState =
     | { type: "decrypted"; verified: boolean | null; part?: { index: number; total: number; merged: boolean; }; }
     | { type: "continuation"; index: number; total: number; }

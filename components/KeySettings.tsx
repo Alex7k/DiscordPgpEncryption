@@ -16,8 +16,9 @@ import { Alerts, showToast, TextArea, TextInput, UserStore, useState } from "@we
 import type { ReactNode } from "react";
 
 import { formatFingerprint, generateKeyPair, prepareKeyImport } from "../crypto";
-import { deleteOwnKey, getOwnKey, isUnlocked, lock, OwnKeyRecord, setOwnKey } from "../keyStore";
+import { clearContacts, deleteOwnKey, getContacts, getOwnKey, isUnlocked, lock, OwnKeyRecord, removeContact, setOwnKey } from "../keyStore";
 import { forgetPassphrase, hasRememberedPassphrase } from "../rememberedPassphrase";
+import { clearEnabledChannels, clearMessageState } from "../state";
 import { openBackupModal } from "./BackupModal";
 import { ensureUnlocked } from "./UnlockModal";
 
@@ -320,6 +321,111 @@ function KeyInfo({ record, onChanged }: { record: OwnKeyRecord; onChanged: () =>
     );
 }
 
+function ContactsPanel({ reloadToken }: { reloadToken: number; }) {
+    const [nonce, setNonce] = useState(0);
+    const rerender = () => setNonce(n => n + 1);
+
+    const [contacts] = useAwaiter(getContacts, {
+        fallbackValue: {},
+        deps: [nonce, reloadToken]
+    });
+    const entries = Object.entries(contacts ?? {});
+
+    async function remove(userId: string) {
+        await removeContact(userId);
+        rerender();
+    }
+
+    function confirmForgetAll() {
+        Alerts.show({
+            title: "Forget all trusted keys?",
+            body: "Every contact's imported public key is removed. You can no longer send them encrypted "
+                + "messages or verify their signatures until they share their key again and you re-import it.",
+            confirmText: "Forget all",
+            cancelText: "Cancel",
+            onConfirm: async () => {
+                await clearContacts();
+                showToast("All trusted contact keys forgotten");
+                rerender();
+            }
+        });
+    }
+
+    return (
+        <>
+            <Heading className="vc-pgp-settings-section-title">Trusted contacts</Heading>
+            {entries.length === 0
+                ? (
+                    <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
+                        No imported keys yet. When someone shares their public key in a DM, import it there
+                        and it will show up here.
+                    </Paragraph>
+                )
+                : entries.map(([userId, record]) => (
+                    <Flex
+                        key={userId}
+                        className={Margins.top8}
+                        style={{ gap: "0.5em", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}
+                    >
+                        <div>
+                            <Paragraph>
+                                {UserStore.getUser(userId)?.username ?? userId}
+                                <span style={mutedText}> · imported {new Date(record.importedAt).toLocaleDateString()}</span>
+                            </Paragraph>
+                            <Paragraph size="xs" style={{ ...mutedText, fontFamily: "var(--font-code)", userSelect: "text" }}>
+                                {formatFingerprint(record.fingerprint)}
+                            </Paragraph>
+                        </div>
+                        <Button size="small" variant="secondary" onClick={() => void remove(userId)}>
+                            Remove
+                        </Button>
+                    </Flex>
+                ))}
+            {entries.length > 1 && (
+                <Button className="vc-pgp-settings-button" size="small" variant="dangerPrimary" onClick={confirmForgetAll}>
+                    Forget All Contacts
+                </Button>
+            )}
+        </>
+    );
+}
+
+function ResetPanel({ onChanged }: { onChanged: () => void; }) {
+    function confirmReset() {
+        Alerts.show({
+            title: "Reset all plugin data?",
+            body: "Deletes your keypair, every trusted contact key, the saved passphrase, and all per-channel "
+                + "encryption toggles on this device. Unless you have a key backup, messages encrypted to this "
+                + "key become permanently unreadable. This cannot be undone.",
+            confirmText: "Reset everything",
+            cancelText: "Cancel",
+            onConfirm: async () => {
+                await forgetPassphrase();
+                await deleteOwnKey();
+                await clearContacts();
+                await clearEnabledChannels();
+                clearMessageState();
+                showToast("All PgpEncrypt data wiped. Restart Discord for a clean slate.");
+                onChanged();
+            }
+        });
+    }
+
+    return (
+        <>
+            <Heading className="vc-pgp-settings-section-title">Reset</Heading>
+            <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
+                Wipes everything this plugin stores on this device: keypair, trusted contact keys, saved
+                passphrase, and per-channel toggles. Messages decrypted this session stay readable until
+                you fully restart Discord.
+            </Paragraph>
+            <Button className="vc-pgp-settings-button" variant="dangerPrimary" onClick={confirmReset}>
+                Reset Plugin Data
+            </Button>
+        </>
+    );
+}
+
 export function KeySettings() {
     const [reloadCount, setReloadCount] = useState(0);
     const reload = () => setReloadCount(c => c + 1);
@@ -339,6 +445,10 @@ export function KeySettings() {
             }
             <Divider className="vc-pgp-settings-divider" />
             <ImportKeyForm hasExisting={ownKey != null} onImported={reload} />
+            <Divider className="vc-pgp-settings-divider" />
+            <ContactsPanel reloadToken={reloadCount} />
+            <Divider className="vc-pgp-settings-divider" />
+            <ResetPanel onChanged={reload} />
         </>
     );
 }

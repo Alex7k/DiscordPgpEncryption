@@ -58,6 +58,10 @@ export async function removeContact(userId: string) {
     await DataStore.set(CONTACTS, contacts);
 }
 
+export async function clearContacts() {
+    await DataStore.del(CONTACTS);
+}
+
 // The decrypted private key is only ever held in memory, never persisted
 let sessionKey: PrivateKey | null = null;
 
