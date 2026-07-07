@@ -38,11 +38,12 @@ export function About() {
                 Privacy works like herd immunity.
             </Paragraph>
 
-            <Heading className={Margins.top16}>Lipstick on a pig</Heading>
+            <Heading className={Margins.top16}>Not a perfect solution</Heading>
             <Paragraph>
-                Even if you use this plugin, the following still gets leaked: metadata (who you talk to, when, how often), stickers, attachments.
-                Also, link embeds don't work and obviously the PGP stuff doesn't work when not using the plugin (e.g. on your iOS phone).
-                Don't use Discord, use <Link href="https://signal.org">Signal</Link> or similar instead, and get other people to add you on there too.
+                Even if you use this plugin, the following still gets leaked: metadata (who you talk to, when, how often) and stickers.
+                Also, link embeds don't work (they rely on discord's bots visiting those links, but discord doesn't see the links obviously) and of course,
+                the PGP stuff doesn't work when not using the plugin (e.g. on your iOS phone).
+                Don't use Discord, use <Link href="https://signal.org">Signal</Link> or similar, and get other people to switch as well.
             </Paragraph>
 
             <Paragraph className={Margins.top16}>
