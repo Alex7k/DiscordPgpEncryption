@@ -304,16 +304,13 @@ function KeyInfo({ record, onChanged }: { record: OwnKeyRecord; onChanged: () =>
                 </Button>
             </Flex>
 
-            <Heading className={Margins.top16}>⚠ Back up your key now</Heading>
+            <Heading className={Margins.top16}>⚠ BACK UP THE KEY + PASSPHRASE!</Heading>
             <Paragraph size="xs" style={mutedText}>
-                Click "Backup Private Key" above and store the copy somewhere safe, such as a password manager.
-                Store your passphrase there too, as a separate entry: the backup is locked with it, so restoring
-                needs both the backup text and the passphrase, and memory alone is not a backup. There is no
-                recovery beyond that: if this device is lost, or you delete the keypair without a backup, every
-                message ever encrypted to this key becomes permanently unreadable, for you too, not just for others.
+                Click "Backup Private Key" above. Store the private key AND passphrase somewhere safe, such as a password manager.
+                If you delete or lose the keypair without a backup, every message ever encrypted to this key becomes permanently unreadable.
             </Paragraph>
             <Paragraph className={Margins.top8} size="xs" style={mutedText}>
-                Using Discord on several devices? Don't generate a second key. Import this same backup on each
+                Using Discord on several devices? Do NOT generate a second key. Import this same backup on each
                 device instead (below, under "Import an existing keypair"). Contacts encrypt to exactly one key
                 per account, so only devices holding this key can read your messages.
             </Paragraph>
@@ -357,7 +354,7 @@ function ContactsPanel({ reloadToken }: { reloadToken: number; }) {
             {entries.length === 0
                 ? (
                     <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
-                        No imported keys yet. When someone shares their public key in a DM, import it there
+                        No imported keys yet. When someone shares their public key in a DM, click the "import" button
                         and it will show up here.
                     </Paragraph>
                 )
@@ -413,12 +410,7 @@ function ResetPanel({ onChanged }: { onChanged: () => void; }) {
 
     return (
         <>
-            <Heading className="vc-pgp-settings-section-title">Reset</Heading>
-            <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
-                Wipes everything this plugin stores on this device: keypair, trusted contact keys, saved
-                passphrase, and per-channel toggles. Messages decrypted this session stay readable until
-                you fully restart Discord.
-            </Paragraph>
+            {/* <Heading className="vc-pgp-settings-section-title">Reset</Heading> */}
             <Button className="vc-pgp-settings-button" variant="dangerPrimary" onClick={confirmReset}>
                 Reset Plugin Data
             </Button>
