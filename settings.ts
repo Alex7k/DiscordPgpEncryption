@@ -20,6 +20,11 @@ export const settings = definePluginSettings({
         description: "Split attachments larger than your upload size limit into multiple encrypted parts, sent across as many messages as needed. When off, over-limit files are blocked by Discord as usual",
         default: true
     },
+    gifAsFile: {
+        type: OptionType.BOOLEAN,
+        description: "Send GIF picker GIFs in encrypted channels as encrypted file uploads. Embeds cannot work on encrypted messages, so GIFs otherwise arrive as bare links.",
+        default: true
+    },
     autoSplit: {
         type: OptionType.BOOLEAN,
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",

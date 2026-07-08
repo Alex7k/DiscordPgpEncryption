@@ -161,6 +161,8 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
     const mime = mimeFromFilename(att.filename ?? "");
     const isImage = mime.startsWith("image/");
     const isVideo = mime.startsWith("video/");
+    // a "gif" from the picker that only existed as mp4/webm; play it like a gif
+    const isGifVideo = /\.gif\.(mp4|webm)$/i.test(att.filename ?? "");
 
     function openViewer() {
         if (!att.blobUrl || !dims) return;
@@ -186,8 +188,10 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
             onLoad={(e: any) => setDims({ width: e.target.naturalWidth, height: e.target.naturalHeight })}
             onClick={openViewer}
         />
-        : isVideo
-            ? <video src={att.blobUrl} controls className="vc-pgp-media" />
+        : isGifVideo
+            ? <video src={att.blobUrl} autoPlay loop muted playsInline className="vc-pgp-media" />
+            : isVideo
+                ? <video src={att.blobUrl} controls className="vc-pgp-media" />
             : mime.startsWith("audio/")
                 ? <audio src={att.blobUrl} controls />
                 : null;

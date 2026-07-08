@@ -14,6 +14,7 @@ import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
 import { MAX_SPLIT_PARTS } from "./crypto";
+import { sendGifAsFile, shouldSendGifAsFile } from "./gifUpload";
 import { lock, onKeyChange } from "./keyStore";
 import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
@@ -57,6 +58,17 @@ export default definePlugin({
                 replace: "$&var vcPgpSrc=$self.getBlobSrc(this?.props);if(vcPgpSrc)return vcPgpSrc;"
             }
         },
+        // The GIF picker sends a plain Tenor/Giphy link, which can never embed
+        // in an encrypted channel (the server only sees ciphertext, so it cannot
+        // unfurl). Intercept the selection and send the GIF as an encrypted file
+        // instead; same patch site as the GifPaste core plugin, guard included.
+        {
+            find: "handleSelectGIF=",
+            replacement: {
+                match: /handleSelectGIF=(\i)=>\{/,
+                replace: "$&if(!this?.props?.className&&$self.shouldSendGifAsFile())return $self.sendGifAsFile($1);"
+            }
+        },
         // Discord rejects an over-limit file at attach time with a Nitro upsell,
         // before our upload() hook can encrypt and split it. Two gates run: a
         // per-file one (maxFileSize(guildId)) and a total-message-size one
@@ -91,6 +103,9 @@ export default definePlugin({
         } catch { }
         return undefined;
     },
+
+    shouldSendGifAsFile,
+    sendGifAsFile,
 
     composerLimit(realLimit: number): number {
         const channelId = SelectedChannelStore.getChannelId();

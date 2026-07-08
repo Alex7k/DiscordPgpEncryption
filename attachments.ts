@@ -327,8 +327,8 @@ async function sendOverflowParts(channelId: string, messages: File[][]) {
     }
 }
 
-/** Uploads already-encrypted part files and posts them as one attachment-only message */
-async function sendFilesMessage(channelId: string, files: File[]) {
+/** Uploads files (encrypted by the upload interception) and posts them as one attachment-only message */
+export async function sendFilesMessage(channelId: string, files: File[]) {
     const uploads: CloudUpload[] = files.map(file =>
         new CloudUploadClass({ file, platform: 1 }, channelId)
     );

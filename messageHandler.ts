@@ -46,6 +46,26 @@ export async function handlePreEdit(channelId: string, messageId: string, messag
     return encryptOutgoing(channelId, messageObj, true);
 }
 
+/**
+ * Encrypts and sends a text message programmatically. Needed because the
+ * pre-send hook only wraps composer submits: MessageActions.sendMessage called
+ * directly bypasses it. Never sends plaintext — a cancelled encryption
+ * (missing keys, locked key) sends nothing and returns false.
+ */
+export async function sendEncryptedText(channelId: string, content: string): Promise<boolean> {
+    const messageObj = { content } as MessageObject;
+    const result = await encryptOutgoing(channelId, messageObj, false);
+    if (result?.cancel) return false;
+    if (getPgpMessagePayload(messageObj.content ?? "") === null) {
+        // encryptOutgoing left it untouched (e.g. not a private channel); this
+        // helper is only for encrypted sends, so refuse rather than leak
+        logger.warn("sendEncryptedText: content was not encrypted, dropping send");
+        return false;
+    }
+    await sendMessage(channelId, { content: messageObj.content });
+    return true;
+}
+
 async function sendChunks(channelId: string, chunks: string[]) {
     for (const chunk of chunks) {
         await sendMessage(channelId, { content: chunk });
