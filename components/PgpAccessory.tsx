@@ -325,6 +325,14 @@ function StatusLine({ message }: { message: Message; }) {
     }
 
     switch (state.type) {
+        case "decrypting":
+            // typing-indicator-style dots; the companion CSS rule hides the
+            // ciphertext while this renders
+            return (
+                <div className="vc-pgp-accessory vc-pgp-decrypting" aria-label="Decrypting">
+                    <span /><span /><span />
+                </div>
+            );
         case "pending":
             return (
                 <div

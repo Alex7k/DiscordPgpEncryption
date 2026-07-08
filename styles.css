@@ -42,6 +42,62 @@
     cursor: pointer;
 }
 
+/* While a decrypt is in flight the store still holds ciphertext; blank it out
+   but keep exactly one text line of space, so swapping in a (typical
+   single-line) plaintext doesn't shift the layout. Only matches messages whose
+   accessory carries vc-pgp-decrypting, so plain messages are untouched. */
+li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"] {
+    visibility: hidden;
+    max-height: 1.375rem;
+    overflow: hidden;
+}
+
+.vc-pgp-decrypting {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* invisible character so the dots row is exactly one accessory text line
+   tall, same as the "e2ee ✓" line that replaces it */
+.vc-pgp-decrypting::after {
+    content: "\200b";
+}
+
+.vc-pgp-decrypting span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    opacity: 0.35;
+    animation: vc-pgp-pulse 1.2s infinite ease-in-out;
+}
+
+.vc-pgp-decrypting span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.vc-pgp-decrypting span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes vc-pgp-pulse {
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-pgp-decrypting span {
+        animation: none;
+    }
+}
+
 .vc-pgp-continuation {
     margin-top: 0;
     opacity: 0.45;

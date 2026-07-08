@@ -155,6 +155,11 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
     const payload = getPgpMessagePayload(message.content ?? "");
     if (payload === null) return;
 
+    // Set synchronously, inside the dispatch that delivered the message, so the
+    // first paint already renders "Decrypting…" instead of flashing ciphertext.
+    // Every path out of this function replaces this state.
+    messageStates.set(messageId, { type: "decrypting" });
+
     const ownKey = await getOwnKey();
     if (!ownKey) {
         messageStates.set(messageId, { type: "failed", reason: "You have no PGP keypair" });

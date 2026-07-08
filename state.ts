@@ -30,6 +30,8 @@ export async function clearEnabledChannels() {
 export type MessagePgpState =
     | { type: "decrypted"; verified: boolean | null; part?: { index: number; total: number; merged: boolean; }; }
     | { type: "continuation"; index: number; total: number; }
+    /** Ciphertext arrived and the async decrypt is in flight; hides the raw ciphertext until a final state replaces this */
+    | { type: "decrypting"; }
     | { type: "pending"; }
     | { type: "failed"; reason: string; };
 
