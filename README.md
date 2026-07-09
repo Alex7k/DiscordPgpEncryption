@@ -12,18 +12,20 @@ Without plugin (not decrypted):
 
 ## Features
 
-- Seamless end-to-end encryption in DMs using PGP
+- PGP-Encrypted messages
+- PGP-Signed messages
 - Per-DM toggle
-- PGP signatures
 - Encrypted attachments
 - Long message splitting
 - Large file splitting - large files are split into multiple files to circumvent file size limits. it's reassembled automatically on clients.
 - Key management
 - Key sharing and trust - share your public key by right clicking the lock icon
+- Gif picker gifs sent as encrypted files (source link is attached, so there is still be a button to favorite the gif.)
+-
 
 ## Quick install/update (Windows)
 
-`install.ps1` automatically installs and injects Vencord with this plugin. It is safe to re-run any time to update. From any PowerShell window:
+`install.ps1` automatically installs and injects Vencord with this plugin. Re-run any time to update. From any PowerShell window:
 
 ```powershell
 irm https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1 | iex
@@ -84,9 +86,27 @@ pnpm add -w openpgp
 pnpm add -Dw @openpgp/web-stream-tools
 pnpm build
 pnpm inject
+pnpm buildWeb   # only needed if you plan to use Discord in a browser
 ```
 
 If you already have Vencord, start at `cd Vencord`.
+
+## Use in a browser
+
+`pnpm buildWeb` builds Vencord (with this plugin) as a browser extension into `dist/`.
+
+Chrome / Chromium (Brave, Edge, ...):
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked** and select the `dist/chromium-unpacked` folder
+4. Reload discord.com
+
+The extension persists across browser restarts. After updating (see below), hit the reload arrow on the extension in `chrome://extensions` and refresh Discord.
+
+Firefox: load `dist/extension-firefox.zip` as a temporary add-on via `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on**. Note that temporary add-ons are removed when Firefox closes; installing it permanently requires Firefox Developer Edition or Nightly with `xpinstall.signatures.required` set to `false` in `about:config`.
+
+Browser limitations: GIFs picked from the GIF picker are sent as encrypted links instead of encrypted files (there is no native process to download them through), and the picker-preview host permission prompt for favorited GIFs from unusual hosts is desktop-only.
 
 ## Update
 
@@ -98,6 +118,9 @@ git -C src/userplugins/pgpEncrypt pull
 pnpm install
 pnpm build
 pnpm inject
+pnpm buildWeb   # only needed if you use Discord in a browser
 ```
+
+Desktop picks up the update after a full Discord restart. For the browser, also reload the extension in `chrome://extensions` and refresh discord.com.
 
 The `pnpm add` lines in the install step are needed because stock Vencord does not ship the OpenPGP dependencies this plugin uses.

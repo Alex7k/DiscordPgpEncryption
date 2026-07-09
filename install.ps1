@@ -151,6 +151,11 @@ try {
     Write-Host "Building Vencord..."
     Exec { pnpm build }
 
+    # also build the browser extension (dist/chromium-unpacked); costs a few
+    # seconds and saves a manual step for anyone using Discord in a browser
+    Write-Host "Building browser extension..."
+    Exec { pnpm buildWeb }
+
     # interactive: asks which Discord install to patch; already-injected
     # installs are detected and left alone
     Write-Host "Injecting into Discord..."
