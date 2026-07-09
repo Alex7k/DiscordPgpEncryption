@@ -20,8 +20,7 @@ Without plugin (not decrypted):
 - Large file splitting - large files are split into multiple files to circumvent file size limits. it's reassembled automatically on clients.
 - Key management
 - Key sharing and trust - share your public key by right clicking the lock icon
-- Gif picker gifs sent as encrypted files (source link is attached, so there is still be a button to favorite the gif.)
--
+- Gif picker gifs sent as encrypted files (source link is attached, so there is still a button to favorite the gif.)
 
 ## Quick install/update (Windows)
 
@@ -86,7 +85,7 @@ pnpm add -w openpgp
 pnpm add -Dw @openpgp/web-stream-tools
 pnpm build
 pnpm inject
-pnpm buildWeb   # only needed if you plan to use Discord in a browser
+pnpm buildWeb # only needed if you plan to use Discord in a browser
 ```
 
 If you already have Vencord, start at `cd Vencord`.
@@ -94,6 +93,8 @@ If you already have Vencord, start at `cd Vencord`.
 ## Use in a browser
 
 `pnpm buildWeb` builds Vencord (with this plugin) as a browser extension into `dist/`.
+
+If you already have the regular Vencord extension in your browser, remove or disable it first. Two Vencord instances on discord.com conflict with each other.
 
 Chrome / Chromium (Brave, Edge, ...):
 
