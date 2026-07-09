@@ -6,37 +6,28 @@
 
 import { IpcMainInvokeEvent } from "electron";
 
-/**
- * Only the GIF CDNs the sender's client already contacted while browsing the
- * picker, plus Discord's own media proxy (which the picker serves results
- * through). This must never grow into a generic fetch proxy: an arbitrary URL
- * fetched on someone's behalf is an IP-leak primitive.
- */
-function isAllowedGifHost(hostname: string): boolean {
-    return hostname === "tenor.com" || hostname.endsWith(".tenor.com")
-        || hostname === "giphy.com" || hostname.endsWith(".giphy.com")
-        || hostname === "media.discordapp.net" || /^images-ext-\d+\.discordapp\.net$/.test(hostname);
-}
-
 const MAX_GIF_BYTES = 100 * 1024 * 1024;
+
+/** media file extensions the renderer-side picker interception sends here */
+const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|png|jpe?g)$/i;
 
 /**
  * Downloads GIF media in the main process, where Discord's renderer CSP does
- * not apply. Errors are returned as values so the renderer can fall back
- * gracefully instead of unwrapping an IPC exception.
+ * not apply. IP-safety: this only ever runs on the SENDER's machine for a gif
+ * the sender clicked in their own picker, whose preview the picker already
+ * fetched from the same host — so any https media URL is fair game (favorites
+ * can live anywhere, not just Tenor/Giphy). The recipient never fetches.
+ * It is still not a generic proxy: https + media extension + size cap only.
+ * Errors are returned as values so the renderer can fall back gracefully.
  */
 export async function fetchGifMedia(_: IpcMainInvokeEvent, url: string): Promise<{ ok: true; data: Uint8Array; } | { ok: false; error: string; }> {
     try {
         const parsed = new URL(url);
-        if (parsed.protocol !== "https:" || !isAllowedGifHost(parsed.hostname))
-            return { ok: false, error: `refusing to fetch from ${parsed.hostname}` };
+        if (parsed.protocol !== "https:" || !MEDIA_EXT_RE.test(parsed.pathname))
+            return { ok: false, error: `refusing to fetch non-media url from ${parsed.hostname}` };
 
         const res = await fetch(url);
         if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-
-        // a redirect could hop off the allowlist; check where we actually landed
-        const finalHost = new URL(res.url).hostname;
-        if (!isAllowedGifHost(finalHost)) return { ok: false, error: `redirected off-allowlist to ${finalHost}` };
 
         const buf = await res.arrayBuffer();
         if (buf.byteLength > MAX_GIF_BYTES) return { ok: false, error: "media too large" };

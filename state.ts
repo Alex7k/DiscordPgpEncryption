@@ -77,6 +77,10 @@ export interface AttachmentState {
     blobUrl?: string;
     filename?: string;
     verified?: boolean | null;
+    /** Media URL a picker gif came from, recovered from the encrypted metadata; enables favoriting */
+    sourceUrl?: string;
+    /** The gif's canonical URL (e.g. tenor page) — the key Discord's favorites map uses */
+    sourcePageUrl?: string;
 }
 
 /** messageId -> encrypted attachments of that message. Memory only. */
@@ -117,6 +121,10 @@ export interface AttachmentGroup {
     blobUrl?: string;
     filename?: string;
     verified?: boolean | null;
+    /** Media URL a picker gif came from, recovered from the encrypted metadata; enables favoriting */
+    sourceUrl?: string;
+    /** The gif's canonical URL (e.g. tenor page) — the key Discord's favorites map uses */
+    sourcePageUrl?: string;
 }
 
 /** groupId -> split attachment reassembly state. Memory only. */

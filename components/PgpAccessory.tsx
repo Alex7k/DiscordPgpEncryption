@@ -5,12 +5,15 @@
  */
 
 import { Button } from "@components/Button";
+import { copyToClipboard } from "@utils/clipboard";
 import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
 import { openMediaModal, showToast, Tooltip, UserStore, useState } from "@webpack/common";
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename } from "../attachments";
+import { addGifToFavorites, isGifFavorited, offerPreviewCspOverride, removeGifFromFavorites } from "../gifUpload";
+import { confirmFavoriteGif } from "./FavoriteConfirmModal";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
 import { getContacts, setContact } from "../keyStore";
 import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, messageStates } from "../state";
@@ -153,6 +156,8 @@ interface DecryptedMedia {
     filename?: string;
     size: number;
     verified?: boolean | null;
+    sourceUrl?: string;
+    sourcePageUrl?: string;
 }
 
 function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
@@ -189,7 +194,15 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
             onClick={openViewer}
         />
         : isGifVideo
-            ? <video src={att.blobUrl} autoPlay loop muted playsInline className="vc-pgp-media" />
+            ? <video
+                src={att.blobUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="vc-pgp-media"
+                onLoadedMetadata={(e: any) => setDims({ width: e.target.videoWidth, height: e.target.videoHeight })}
+            />
             : isVideo
                 ? <video src={att.blobUrl} controls className="vc-pgp-media" />
             : mime.startsWith("audio/")
@@ -199,12 +212,57 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
         ? " · ✓"
         : att.verified === false ? " · ⚠ SIGNATURE INVALID" : "";
 
+    // favorited state lives in the settings proto; bump to re-read after a toggle
+    const [, bumpFavorites] = useState(0);
+    const favorited = att.sourceUrl ? isGifFavorited(att.sourceUrl, att.sourcePageUrl) : false;
+
+    async function toggleFavorite(e: ReactMouseEvent) {
+        e.stopPropagation();
+        if (!att.sourceUrl) return;
+
+        if (!favorited && !await confirmFavoriteGif(att.sourceUrl)) return;
+
+        const ok = favorited
+            ? removeGifFromFavorites(att.sourceUrl, att.sourcePageUrl)
+            : addGifToFavorites(att.sourceUrl, att.sourcePageUrl, dims?.width ?? 0, dims?.height ?? 0);
+        if (!ok) {
+            showToast("Could not update favorites, check the console");
+        } else {
+            showToast(favorited ? "Removed from your favorite GIFs" : "Added to your favorite GIFs");
+            // the picker may not be able to render the new favorite's preview
+            if (!favorited) void offerPreviewCspOverride(att.sourceUrl);
+        }
+        bumpFavorites(n => n + 1);
+    }
+
     return (
         <div className="vc-pgp-attachment">
             {media}
             <div className={att.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
                 🔒 {att.filename} ({formatSize(att.size)}){sig}
                 {" · "}<a href={att.blobUrl} download={att.filename} onClick={e => e.stopPropagation()}>save</a>
+                {att.sourceUrl && <>{" · "}
+                    <a
+                        onClick={async e => {
+                            e.stopPropagation();
+                            try {
+                                // resolves a promise on web, plain undefined on desktop
+                                await copyToClipboard(att.sourcePageUrl ?? att.sourceUrl!);
+                                showToast("GIF link copied");
+                            } catch {
+                                showToast("Could not copy the link");
+                            }
+                        }}
+                    >
+                        copy link
+                    </a>
+                    {" · "}
+                    <a onClick={toggleFavorite}>
+                        {favorited
+                            ? <><span className="vc-pgp-fav-star">★</span> unfavorite</>
+                            : <>☆ favorite</>}
+                    </a>
+                </>}
             </div>
         </div>
     );

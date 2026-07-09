@@ -47,6 +47,41 @@ export function mimeFromFilename(filename: string): string {
 // matches the current ".pgp.png" as well as older ".pgp" uploads
 export const isPgpAttachment = (attachment: { filename?: string; }) => /\.pgp(\.\w+)?$/i.test(attachment.filename ?? "");
 
+/**
+ * A picker gif's source rides inside the encrypted OpenPGP filename metadata,
+ * so recipients can favorite the gif without the URLs ever being visible
+ * outside the ciphertext. Two URLs travel: the media file (vcsrc, what to
+ * fetch/preview) and the canonical identity (vcurl, e.g. the tenor page URL —
+ * the key Discord's own favorites map uses). The filename field caps at 255
+ * bytes; whatever doesn't fit is dropped, identity first.
+ */
+const SOURCE_URL_MARKER = "?vcsrc=";
+const IDENTITY_URL_MARKER = "?vcurl=";
+const MAX_EMBEDDED_FILENAME = 250;
+
+export function packSourceUrl(filename: string, sourceUrl: string, identityUrl?: string): string {
+    let packed = filename + SOURCE_URL_MARKER + sourceUrl;
+    if (packed.length > MAX_EMBEDDED_FILENAME) return filename;
+    if (identityUrl && identityUrl !== sourceUrl && packed.length + IDENTITY_URL_MARKER.length + identityUrl.length <= MAX_EMBEDDED_FILENAME) {
+        packed += IDENTITY_URL_MARKER + identityUrl;
+    }
+    return packed;
+}
+
+function unpackSourceUrl(embedded: string): { filename: string; sourceUrl?: string; identityUrl?: string; } {
+    const srcIdx = embedded.indexOf(SOURCE_URL_MARKER);
+    if (srcIdx === -1) return { filename: embedded };
+
+    let rest = embedded.slice(srcIdx + SOURCE_URL_MARKER.length);
+    let identityUrl: string | undefined;
+    const idIdx = rest.indexOf(IDENTITY_URL_MARKER);
+    if (idIdx !== -1) {
+        identityUrl = rest.slice(idIdx + IDENTITY_URL_MARKER.length);
+        rest = rest.slice(0, idIdx);
+    }
+    return { filename: embedded.slice(0, srcIdx), sourceUrl: rest, identityUrl };
+}
+
 /** How many attachments Discord allows on one message */
 const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
@@ -463,11 +498,14 @@ export async function decryptAttachment(channelId: string, messageId: string, at
             verificationKey = (await getContacts())[att.authorId]?.publicKey;
         }
 
-        const { data, filename, verified } = await decryptFileBytes(bytes, privateKey, verificationKey);
+        const { data, filename: embeddedName, verified } = await decryptFileBytes(bytes, privateKey, verificationKey);
+        const { filename, sourceUrl, identityUrl } = unpackSourceUrl(embeddedName);
 
         if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
         att.blobUrl = URL.createObjectURL(new Blob([data as unknown as BlobPart], { type: mimeFromFilename(filename) }));
         att.filename = filename;
+        att.sourceUrl = sourceUrl;
+        att.sourcePageUrl = identityUrl;
         att.size = data.length;
         att.verified = verified;
         att.status = "decrypted";
@@ -630,9 +668,13 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
 
         if (chunks.some(chunk => !chunk)) throw new Error("some parts are missing");
 
+        const { filename: cleanName, sourceUrl, identityUrl } = unpackSourceUrl(filename);
+
         if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
-        group.blobUrl = URL.createObjectURL(new Blob(chunks as unknown as BlobPart[], { type: mimeFromFilename(filename) }));
-        group.filename = filename;
+        group.blobUrl = URL.createObjectURL(new Blob(chunks as unknown as BlobPart[], { type: mimeFromFilename(cleanName) }));
+        group.filename = cleanName;
+        group.sourceUrl = sourceUrl;
+        group.sourcePageUrl = identityUrl;
         group.size = chunks.reduce((sum, chunk) => sum + chunk!.length, 0);
         // one bad signature taints the whole file; an uncheckable one taints it down to "unknown"
         group.verified = signatures.some(v => v === false) ? false

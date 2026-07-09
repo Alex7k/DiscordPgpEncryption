@@ -30,8 +30,22 @@ export const settings = definePluginSettings({
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",
         default: true
     },
+    skipFavoriteDialog: {
+        type: OptionType.BOOLEAN,
+        description: "Skip the confirmation dialog when favoriting a GIF from an encrypted chat. The dialog explains that favorites are saved to your Discord account settings, outside end-to-end encryption, and shows which site the GIF comes from",
+        default: false
+    },
     keyManagement: {
         type: OptionType.COMPONENT,
         component: KeySettings
+    },
+    /**
+     * Hosts whose favorite-gif privacy dialog the user already confirmed once.
+     * Lives in plugin settings (not DataStore) so Vencord Cloud settings sync
+     * carries it, like skipFavoriteDialog above.
+     */
+    favoriteGifAckHosts: {
+        type: OptionType.CUSTOM,
+        default: [] as string[]
     }
 });

@@ -169,6 +169,10 @@ li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"]
     transition: width 0.2s;
 }
 
+.vc-pgp-fav-star {
+    color: var(--status-warning, #f0b232);
+}
+
 .vc-pgp-warn {
     color: var(--status-warning, #f0b232);
 }
