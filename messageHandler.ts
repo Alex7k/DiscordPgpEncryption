@@ -158,16 +158,73 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject, isE
 let notifiedLockedThisSession = false;
 
 /**
+ * Dispatches deferred, and never while another dispatch is still running —
+ * that throws inside Flux and the update is silently lost, which leaves
+ * messages visually stuck until something else re-renders them (e.g. hover).
+ */
+function dispatchWhenIdle(payload: Record<string, any>) {
+    // mark our synthetic dispatches so our own flux handler ignores them;
+    // without this, two messages replying to each other re-broadcast one
+    // another forever (each broadcast of A re-broadcasts its reference B,
+    // whose broadcast re-broadcasts A, ...)
+    payload.vcPgpSynthetic = true;
+
+    const fire = () => {
+        if ((FluxDispatcher as any).isDispatching?.()) {
+            setTimeout(fire, 0);
+        } else {
+            try {
+                FluxDispatcher.dispatch(payload as any);
+            } catch (e) {
+                logger.error(`failed to dispatch ${payload.type} for ${payload.message?.id}`, e);
+            }
+        }
+    };
+    queueMicrotask(fire);
+}
+
+/**
  * Pushes decrypted content to stores that keep their own copy of a message,
  * like the reply preview cache, which updateMessage does not reach. Partial
  * MESSAGE_UPDATEs are what Discord itself sends for embed unfurls, so stores
- * merge them cleanly. Deferred so it never lands inside an ongoing dispatch.
+ * merge them cleanly — but newer web builds drop partials without an author,
+ * so the stored author rides along in raw gateway shape.
  */
 function broadcastContent(channelId: string, messageId: string, content: string) {
-    queueMicrotask(() => FluxDispatcher.dispatch({
+    const stored = MessageStore.getMessage(channelId, messageId) as any;
+    const author = stored?.author && {
+        id: stored.author.id,
+        username: stored.author.username,
+        global_name: stored.author.globalName ?? null,
+        discriminator: stored.author.discriminator ?? "0",
+        avatar: stored.author.avatar ?? null,
+        bot: !!stored.author.bot
+    };
+
+    dispatchWhenIdle({
         type: "MESSAGE_UPDATE",
-        message: { id: messageId, channel_id: channelId, content }
-    } as any));
+        message: {
+            id: messageId,
+            channel_id: channelId,
+            content,
+            ...(author ? { author } : {}),
+            // newer web builds only repaint rows for updates carrying an
+            // embeds field (the unfurl path); encrypted messages never have
+            // embeds, so an empty array is a safe no-op that forces the paint
+            ...(stored?.embeds?.length ? {} : { embeds: [] })
+        }
+    });
+}
+
+/**
+ * Store-driven re-render for clients where the MessageCache commit inside
+ * updateMessage does not repaint the row. Re-dispatches the message's current
+ * content as a partial MESSAGE_UPDATE, the same path a real edit takes.
+ */
+export function forceMessageRender(channelId: string, messageId: string) {
+    const stored = MessageStore.getMessage(channelId, messageId);
+    if (!stored) return;
+    broadcastContent(channelId, messageId, stored.content);
 }
 
 export async function tryDecryptMessage(channelId: string, message: Message) {
@@ -360,7 +417,10 @@ function refreshReferencedMessage(fallbackChannelId: string, message: Message) {
 
 // #region Flux handlers
 
-export function handleMessageCreateOrUpdate(event: { channelId?: string; message?: Message; }) {
+export function handleMessageCreateOrUpdate(event: { channelId?: string; message?: Message; vcPgpSynthetic?: boolean; }) {
+    // our own re-render/broadcast dispatches carry nothing new to process
+    if (event.vcPgpSynthetic) return;
+
     const { message } = event;
     const channelId = event.channelId ?? (message as any)?.channel_id;
     if (!message?.id || !channelId) return;

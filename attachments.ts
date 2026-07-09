@@ -15,6 +15,8 @@ import type { PrivateKey } from "openpgp";
 import { ensureUnlocked } from "./components/UnlockModal";
 import { decryptFileBytes, encryptFileBytes, makeFilePartMeta, makeGroupId, MAX_ATTACHMENT_PARTS, parseFilePartMeta } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
+// cycle with messageHandler is fine: only used at call time, never at module init
+import { forceMessageRender } from "./messageHandler";
 import { openPgpSettings } from "./openSettings";
 import { settings } from "./settings";
 import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, pendingMessages } from "./state";
@@ -515,6 +517,8 @@ export async function decryptAttachment(channelId: string, messageId: string, at
         att.reason = e instanceof Error ? e.message : String(e);
     }
     updateMessage(channelId, messageId);
+    // some clients don't repaint on the MessageCache commit alone
+    forceMessageRender(channelId, messageId);
 }
 
 /** Removes a raw encrypted-file card from the message; the accessory card represents it instead */
@@ -696,6 +700,8 @@ function updateGroupMessages(group: AttachmentGroup) {
         if (seen.has(part.messageId)) continue;
         seen.add(part.messageId);
         updateMessage(part.channelId, part.messageId);
+        // some clients don't repaint on the MessageCache commit alone
+        forceMessageRender(part.channelId, part.messageId);
     }
 }
 

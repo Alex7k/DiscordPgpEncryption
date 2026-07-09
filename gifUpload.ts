@@ -161,6 +161,10 @@ export function addGifToFavorites(sourceUrl: string, pageUrl: string | undefined
  */
 export async function offerPreviewCspOverride(sourceUrl: string) {
     try {
+        // no CSP management on web builds (VencordNative.csp is an empty stub);
+        // the browser uses discord.com's own CSP and we cannot change it
+        if (typeof VencordNative.csp?.isDomainAllowed !== "function") return;
+
         const url = new URL(sourceUrl);
         if (/\.(mp4|webm)$/i.test(url.pathname)) return;
         if (await VencordNative.csp.isDomainAllowed(sourceUrl, ["img-src"])) return;
