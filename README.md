@@ -63,7 +63,7 @@ corepack enable
 corepack prepare pnpm@11.9.0 --activate
 ```
 
-Check that everything is available:
+(Check that everything is available):
 
 ```sh
 git --version
