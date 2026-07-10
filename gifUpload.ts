@@ -40,7 +40,8 @@ const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|png|jpe?g)$/i;
 function asAllowedMediaUrl(raw: unknown): URL | null {
     if (typeof raw !== "string") return null;
     try {
-        const url = new URL(raw);
+        // picker search results carry protocol-relative urls ("//static.klipy.com/...")
+        const url = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
         if (url.protocol !== "https:" || !MEDIA_EXT_RE.test(url.pathname)) return null;
         return url;
     } catch {
