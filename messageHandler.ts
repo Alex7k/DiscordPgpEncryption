@@ -20,6 +20,7 @@ import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
 import { autoUnlockSettled } from "./rememberedPassphrase";
 import { settings } from "./settings";
+import { convertStickersToFiles, shouldSendStickersAsFiles } from "./stickerUpload";
 import { dropAttachmentStates, dropMessageFromGroups, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
@@ -35,8 +36,16 @@ function notify(body: string, onClick?: () => void) {
 
 // #region Encrypt (outgoing)
 
-export async function handlePreSend(channelId: string, messageObj: MessageObject): Promise<void | { cancel: boolean; }> {
+export async function handlePreSend(channelId: string, messageObj: MessageObject, extra?: { stickerIds?: string[]; }): Promise<void | { cancel: boolean; }> {
     if (!enabledChannels.has(channelId)) return;
+
+    if (extra?.stickerIds?.length && shouldSendStickersAsFiles(channelId)) {
+        convertStickersToFiles(channelId, extra.stickerIds);
+        // nothing left to send in this message once the stickers were taken
+        // over (each goes out as its own encrypted attachment message)
+        if (!messageObj.content && extra.stickerIds.length === 0) return { cancel: true };
+    }
+
     return encryptOutgoing(channelId, messageObj, false);
 }
 

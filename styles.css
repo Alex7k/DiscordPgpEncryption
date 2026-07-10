@@ -191,6 +191,13 @@ li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"]
     margin-top: 4px;
 }
 
+/* converted stickers render at the uniform size real stickers get */
+.vc-pgp-media.vc-pgp-sticker {
+    width: 160px;
+    height: 160px;
+    object-fit: contain;
+}
+
 .vc-pgp-media {
     display: block;
     max-width: 400px;

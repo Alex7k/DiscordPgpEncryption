@@ -25,6 +25,11 @@ export const settings = definePluginSettings({
         description: "Send GIF picker GIFs in encrypted channels as encrypted file uploads. Embeds cannot work on encrypted messages, so GIFs otherwise arrive as bare links.",
         default: true
     },
+    stickerAsFile: {
+        type: OptionType.BOOLEAN,
+        description: "Send stickers in encrypted channels as encrypted image files instead of plain stickers. Discord's built-in (lottie) stickers cannot be converted and still send unencrypted, with the usual warning",
+        default: true
+    },
     autoSplit: {
         type: OptionType.BOOLEAN,
         description: "Automatically split messages that are too long after encryption into multiple encrypted messages",

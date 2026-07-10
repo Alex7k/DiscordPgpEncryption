@@ -168,6 +168,8 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
     const isVideo = mime.startsWith("video/");
     // a "gif" from the picker that only existed as mp4/webm; play it like a gif
     const isGifVideo = /\.gif\.(mp4|webm)$/i.test(att.filename ?? "");
+    // a converted sticker; rendered at the uniform size real stickers get
+    const isSticker = /\.sticker\.(png|gif)$/i.test(att.filename ?? "");
 
     function openViewer() {
         if (!att.blobUrl || !dims) return;
@@ -189,7 +191,7 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
         ? <img
             src={att.blobUrl}
             alt={att.filename}
-            className="vc-pgp-media vc-pgp-clickable"
+            className={isSticker ? "vc-pgp-media vc-pgp-sticker vc-pgp-clickable" : "vc-pgp-media vc-pgp-clickable"}
             onLoad={(e: any) => setDims({ width: e.target.naturalWidth, height: e.target.naturalHeight })}
             onClick={openViewer}
         />
