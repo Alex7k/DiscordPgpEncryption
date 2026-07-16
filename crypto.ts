@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { Logger } from "@utils/Logger";
 import { createMessage, decrypt, decryptKey, encrypt, encryptKey, generateKey, type PrivateKey, readKey, readMessage, readPrivateKey } from "openpgp";
+
+const logger = new Logger("PgpEncrypt", "#7289da");
 
 /**
  * Wire format: binary OpenPGP packets as base64 with a short marker prefix,
@@ -245,6 +248,32 @@ export interface DecryptedMessage {
     verified: boolean | null;
 }
 
+/**
+ * Resolves openpgp's verification promise into the tri-state verdict.
+ * openpgp checks the cryptography first and only afterwards rejects on date
+ * sanity, so a rejection caused purely by the signature timestamp lying in the
+ * verifier's future means the signature itself is genuine — the sender's clock
+ * is simply ahead of ours (even a few seconds is enough, since messages are
+ * verified the moment they arrive). Without this, every message from a
+ * fast-clocked sender shows as SIGNATURE INVALID. Backdated/future-dated
+ * signatures are not a threat here: keys don't expire and there is no
+ * revocation, so the timestamp carries no security weight.
+ */
+async function resolveVerified(signatures: { verified: Promise<unknown>; }[]): Promise<boolean | null> {
+    if (signatures.length === 0) return null;
+    try {
+        await signatures[0].verified;
+        return true;
+    } catch (e: any) {
+        if (String(e?.message ?? e).includes("Signature creation time is in the future")) {
+            logger.info("Accepting signature dated slightly in the future (sender's clock is ahead)", e);
+            return true;
+        }
+        logger.info("Signature verification failed", e);
+        return false;
+    }
+}
+
 // A file is split into at most this many parts, sent 10 per message across as
 // many follow-up messages as needed. At a 50 MB per-file limit that is ~25 GB;
 // at Nitro's 500 MB, ~256 GB. The ceiling only guards against absurd part
@@ -329,10 +358,7 @@ export async function decryptFileBytes(
         format: "binary"
     }) as { data: Uint8Array; signatures: any[]; filename: string; };
 
-    let verified: boolean | null = null;
-    if (verificationKeys && signatures.length > 0) {
-        verified = await signatures[0].verified.then(() => true, () => false);
-    }
+    const verified = verificationKeys ? await resolveVerified(signatures) : null;
 
     return { data, filename: filename || "file", verified };
 }
@@ -350,10 +376,7 @@ export async function decryptMessage(b64: string, privateKey: PrivateKey, verifi
         verificationKeys
     });
 
-    let verified: boolean | null = null;
-    if (verificationKeys && signatures.length > 0) {
-        verified = await signatures[0].verified.then(() => true, () => false);
-    }
+    const verified = verificationKeys ? await resolveVerified(signatures) : null;
 
     return { text: data as string, verified };
 }
