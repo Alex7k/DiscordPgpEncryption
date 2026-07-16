@@ -210,9 +210,20 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
             : mime.startsWith("audio/")
                 ? <audio src={att.blobUrl} controls />
                 : null;
-    const sig = att.verified === true
-        ? " · ✓"
-        : att.verified === false ? " · ⚠ SIGNATURE INVALID" : "";
+    const sig = att.verified === false
+        ? <>{" · "}<span className="vc-pgp-failed">⚠ SIGNATURE INVALID</span></>
+        : (
+            <>{" · "}
+                <Tooltip text={att.verified === true ? "End-to-end encrypted · signature verified" : "End-to-end encrypted · sender key unknown, signature not checked"}>
+                    {props => (
+                        <span {...props}>
+                            <span className="vc-pgp-e2ee">e2ee</span>
+                            {att.verified === true && <> <span className="vc-pgp-verified">✓</span></>}
+                        </span>
+                    )}
+                </Tooltip>
+            </>
+        );
 
     // favorited state lives in the settings proto; bump to re-read after a toggle
     const [, bumpFavorites] = useState(0);
@@ -376,11 +387,41 @@ function plainMediaWarning(message: Message): string | null {
     return null;
 }
 
+/** The tiny everyday "e2ee ✓" line; problems get spelled out loudly */
+function E2eeLine({ verified, tooltipExtra = "", partText = "", plain }: {
+    verified: boolean | null;
+    tooltipExtra?: string;
+    partText?: string;
+    plain: string | null;
+}) {
+    const tooltip = "End-to-end encrypted"
+        + (verified === true ? " · signature verified" : "")
+        + tooltipExtra;
+    const sig = verified === false
+        ? <> ⚠ SIGNATURE INVALID — not signed by the sender's trusted key</>
+        : verified === null
+            ? <> · sender key unknown, signature not checked</>
+            : <> <span className="vc-pgp-verified">✓</span></>;
+    return (
+        <div className={verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
+            <Tooltip text={tooltip}>
+                {props => (
+                    <span {...props}>
+                        <span className="vc-pgp-e2ee">e2ee</span>{sig}{partText}
+                    </span>
+                )}
+            </Tooltip>
+            {plain && <span className="vc-pgp-warn"> · ⚠ {plain} NOT encrypted</span>}
+        </div>
+    );
+}
+
 function StatusLine({ message }: { message: Message; }) {
     const state = messageStates.get(message.id);
     if (!state) {
-        // attachment-only or sticker-only messages never pass through encryption,
-        // so in an encrypted channel they deserve the warning on their own
+        // attachment-only messages carry their e2ee status on each decrypted
+        // card's caption; plain media in an encrypted channel deserves the
+        // warning on its own
         if (!enabledChannels.has(message.channel_id)) return null;
         const plain = plainMediaWarning(message);
         return plain
@@ -420,35 +461,16 @@ function StatusLine({ message }: { message: Message; }) {
                     </Tooltip>
                 </div>
             );
-        case "decrypted": {
-            // the everyday all-good line stays tiny; details live in the
-            // tooltip. Only problems get spelled out loudly.
-            const part = state.part && !state.part.merged
-                ? ` · part ${state.part.index}/${state.part.total}`
-                : "";
-            const tooltip = "End-to-end encrypted"
-                + (state.verified === true ? " · signature verified" : "")
-                + (state.part?.merged ? ` · combined from ${state.part.total} messages` : "");
-            const sig = state.verified === false
-                ? <> ⚠ SIGNATURE INVALID — not signed by the sender's trusted key</>
-                : state.verified === null
-                    ? <> · sender key unknown, signature not checked</>
-                    : <> <span className="vc-pgp-verified">✓</span></>;
-            // only the text is encrypted; anything else riding on the message is not
-            const plain = plainMediaWarning(message);
+        case "decrypted":
             return (
-                <div className={state.verified === false ? "vc-pgp-accessory vc-pgp-failed" : "vc-pgp-accessory"}>
-                    <Tooltip text={tooltip}>
-                        {props => (
-                            <span {...props}>
-                                <span className="vc-pgp-e2ee">e2ee</span>{sig}{part}
-                            </span>
-                        )}
-                    </Tooltip>
-                    {plain && <span className="vc-pgp-warn"> · ⚠ {plain} NOT encrypted</span>}
-                </div>
+                <E2eeLine
+                    verified={state.verified}
+                    partText={state.part && !state.part.merged ? ` · part ${state.part.index}/${state.part.total}` : ""}
+                    tooltipExtra={state.part?.merged ? ` · combined from ${state.part.total} messages` : ""}
+                    // only the text is encrypted; anything else riding on the message is not
+                    plain={plainMediaWarning(message)}
+                />
             );
-        }
     }
 }
 
