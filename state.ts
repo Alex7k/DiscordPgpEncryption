@@ -77,6 +77,8 @@ export interface AttachmentState {
     blobUrl?: string;
     filename?: string;
     verified?: boolean | null;
+    /** How often a dead blob url triggered a re-decrypt; capped so it can't loop */
+    healAttempts?: number;
     /** Media URL a picker gif came from, recovered from the encrypted metadata; enables favoriting */
     sourceUrl?: string;
     /** The gif's canonical URL (e.g. tenor page) — the key Discord's favorites map uses */
@@ -91,6 +93,7 @@ export function dropAttachmentStates(messageId: string) {
     if (!list) return;
     for (const att of list) {
         if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
+        forgetDecrypted(att);
     }
     attachmentStates.delete(messageId);
 }
@@ -121,6 +124,8 @@ export interface AttachmentGroup {
     blobUrl?: string;
     filename?: string;
     verified?: boolean | null;
+    /** How often a dead blob url triggered a re-decrypt; capped so it can't loop */
+    healAttempts?: number;
     /** Media URL a picker gif came from, recovered from the encrypted metadata; enables favoriting */
     sourceUrl?: string;
     /** The gif's canonical URL (e.g. tenor page) — the key Discord's favorites map uses */
@@ -147,6 +152,7 @@ export function dropMessageFromGroups(messageId: string) {
         }
         if (group.parts.size === 0) {
             if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
+            forgetDecrypted(group);
             attachmentGroups.delete(groupId);
         }
     }
@@ -163,4 +169,44 @@ export function clearMessageState() {
     }
     attachmentGroups.clear();
     messageAttachmentGroups.clear();
+    decryptedLru.length = 0;
 }
+
+// #region Decrypted-media budget
+
+/**
+ * Chromium gives each profile a finite blob-storage budget; a session that
+ * decrypts media for days can exhaust it, at which point createObjectURL hands
+ * out urls that fail to load (net::ERR_FILE_NOT_FOUND). Keep only the most
+ * recently decrypted attachments alive, oldest evicted first; an evicted one
+ * transparently decrypts again when its message is next seen.
+ */
+const MAX_DECRYPTED_TOTAL_BYTES = 300 * 1024 * 1024;
+
+/** Decrypted attachments currently holding a blob, oldest first */
+const decryptedLru: (AttachmentState | AttachmentGroup)[] = [];
+
+export function retainDecrypted(entry: AttachmentState | AttachmentGroup) {
+    forgetDecrypted(entry);
+    decryptedLru.push(entry);
+
+    let total = decryptedLru.reduce((sum, e) => sum + e.size, 0);
+    while (total > MAX_DECRYPTED_TOTAL_BYTES && decryptedLru.length > 1) {
+        const evicted = decryptedLru.shift()!;
+        total -= evicted.size;
+        if (evicted.blobUrl) URL.revokeObjectURL(evicted.blobUrl);
+        evicted.blobUrl = undefined;
+        if (evicted.status === "decrypted") {
+            // back to the state a fresh sighting of the message decrypts from
+            evicted.status = "parts" in evicted ? "waiting" : "init";
+        }
+    }
+}
+
+/** Drops a state object from the eviction queue when its lifecycle ends elsewhere */
+export function forgetDecrypted(entry: AttachmentState | AttachmentGroup) {
+    const index = decryptedLru.indexOf(entry);
+    if (index !== -1) decryptedLru.splice(index, 1);
+}
+
+// #endregion

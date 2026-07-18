@@ -8,10 +8,10 @@ import { Button } from "@components/Button";
 import { copyToClipboard } from "@utils/clipboard";
 import { useAwaiter } from "@utils/react";
 import { Message } from "@vencord/discord-types";
-import { openMediaModal, showToast, Tooltip, UserStore, useState } from "@webpack/common";
+import { openMediaModal, showToast, Tooltip, useRef, UserStore, useState } from "@webpack/common";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
-import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename } from "../attachments";
+import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename, redecryptAttachment, redecryptAttachmentGroup } from "../attachments";
 import { addGifToFavorites, isGifFavorited, offerPreviewCspOverride, removeGifFromFavorites } from "../gifUpload";
 import { confirmFavoriteGif } from "./FavoriteConfirmModal";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
@@ -160,9 +160,18 @@ interface DecryptedMedia {
     sourcePageUrl?: string;
 }
 
-function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
+function DecryptedAttachment({ att, onMediaError }: { att: DecryptedMedia; onMediaError?: () => void; }) {
     // image dimensions are needed to open Discord's native viewer; captured on load
     const [dims, setDims] = useState<{ width: number; height: number; } | null>(null);
+
+    // a dead blob url (evicted, or the renderer's blob storage gave out)
+    // triggers a re-decrypt; once per mount so a broken file can't loop
+    const healed = useRef(false);
+    function handleMediaError() {
+        if (healed.current) return;
+        healed.current = true;
+        onMediaError?.();
+    }
     const mime = mimeFromFilename(att.filename ?? "");
     const isImage = mime.startsWith("image/");
     const isVideo = mime.startsWith("video/");
@@ -193,6 +202,7 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
             alt={att.filename}
             className={isSticker ? "vc-pgp-media vc-pgp-sticker vc-pgp-clickable" : "vc-pgp-media vc-pgp-clickable"}
             onLoad={(e: any) => setDims({ width: e.target.naturalWidth, height: e.target.naturalHeight })}
+            onError={handleMediaError}
             onClick={openViewer}
         />
         : isGifVideo
@@ -204,11 +214,12 @@ function DecryptedAttachment({ att }: { att: DecryptedMedia; }) {
                 playsInline
                 className="vc-pgp-media"
                 onLoadedMetadata={(e: any) => setDims({ width: e.target.videoWidth, height: e.target.videoHeight })}
+                onError={handleMediaError}
             />
             : isVideo
-                ? <video src={att.blobUrl} controls className="vc-pgp-media" />
+                ? <video src={att.blobUrl} controls className="vc-pgp-media" onError={handleMediaError} />
             : mime.startsWith("audio/")
-                ? <audio src={att.blobUrl} controls />
+                ? <audio src={att.blobUrl} controls onError={handleMediaError} />
                 : null;
     const sig = att.verified === false
         ? <>{" · "}<span className="vc-pgp-failed">⚠ SIGNATURE INVALID</span></>
@@ -302,7 +313,7 @@ function AttachmentCard({ message, att }: { message: Message; att: AttachmentSta
                 />
             );
         case "decrypted":
-            return <DecryptedAttachment att={att} />;
+            return <DecryptedAttachment att={att} onMediaError={() => redecryptAttachment(message.channel_id, message.id, att)} />;
     }
 }
 
@@ -356,7 +367,7 @@ function GroupAttachmentCard({ message, group }: { message: Message; group: Atta
             );
         }
         case "decrypted":
-            return <DecryptedAttachment att={group} />;
+            return <DecryptedAttachment att={group} onMediaError={() => redecryptAttachmentGroup(group)} />;
     }
 }
 

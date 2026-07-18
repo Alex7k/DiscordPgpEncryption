@@ -19,7 +19,7 @@ import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { forceMessageRender } from "./messageHandler";
 import { openPgpSettings } from "./openSettings";
 import { settings } from "./settings";
-import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, pendingMessages } from "./state";
+import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, pendingMessages, retainDecrypted } from "./state";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
@@ -413,7 +413,13 @@ export function handleEncryptedAttachments(channelId: string, message: Message) 
         } else {
             let list = attachmentStates.get(message.id);
             if (!list) attachmentStates.set(message.id, list = []);
-            if (!list.some(s => s.id === attachment.id)) {
+            const existing = list.find(s => s.id === attachment.id);
+            if (existing) {
+                // cdn links are signed and expire after ~a day; a re-served
+                // message carries a re-signed url. Keep the fresh one so a
+                // re-decrypt later in a long session doesn't fetch a dead link
+                existing.url = attachment.url;
+            } else {
                 list.push({
                     id: attachment.id,
                     url: attachment.url,
@@ -484,6 +490,9 @@ async function fetchCiphertext(att: { url: string; }): Promise<Uint8Array> {
 
 /** Fetches the ciphertext from the CDN, decrypts it, and swaps in a blob URL */
 export async function decryptAttachment(channelId: string, messageId: string, att: AttachmentState) {
+    // two message events racing through processAttachments' status check must
+    // not both decrypt (the loser would revoke the winner's fresh blob url)
+    if (att.status === "fetching") return;
     att.status = "fetching";
     updateMessage(channelId, messageId);
 
@@ -511,6 +520,7 @@ export async function decryptAttachment(channelId: string, messageId: string, at
         att.size = data.length;
         att.verified = verified;
         att.status = "decrypted";
+        retainDecrypted(att);
     } catch (e) {
         logger.info(`Failed to decrypt attachment ${att.id}`, e);
         att.status = "failed";
@@ -519,6 +529,52 @@ export async function decryptAttachment(channelId: string, messageId: string, at
     updateMessage(channelId, messageId);
     // some clients don't repaint on the MessageCache commit alone
     forceMessageRender(channelId, messageId);
+}
+
+// A decrypted attachment's blob url can go dead outside our control (evicted
+// by the budget above, or the renderer's blob storage giving out). The media
+// elements report that as a load error; these re-fetch and re-decrypt so the
+// user sees the media instead of a broken icon. Attempts are capped per
+// attachment so a persistently failing blob store can't loop downloads.
+const MAX_HEAL_ATTEMPTS = 2;
+const HEAL_FAILED_REASON = "decrypted media kept failing to load — restart Discord";
+
+/** Re-decrypts a single attachment whose decrypted blob url no longer loads */
+export function redecryptAttachment(channelId: string, messageId: string, att: AttachmentState) {
+    if (att.status !== "decrypted") return;
+    if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
+    att.blobUrl = undefined;
+
+    att.healAttempts = (att.healAttempts ?? 0) + 1;
+    if (att.healAttempts > MAX_HEAL_ATTEMPTS) {
+        att.status = "failed";
+        att.reason = HEAL_FAILED_REASON;
+        updateMessage(channelId, messageId);
+        return;
+    }
+
+    logger.warn(`re-decrypting attachment ${att.id}: its decrypted blob url failed to load (attempt ${att.healAttempts})`);
+    att.status = "init";
+    void decryptAttachment(channelId, messageId, att);
+}
+
+/** Re-decrypts a reassembled group whose decrypted blob url no longer loads */
+export function redecryptAttachmentGroup(group: AttachmentGroup) {
+    if (group.status !== "decrypted") return;
+    if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
+    group.blobUrl = undefined;
+
+    group.healAttempts = (group.healAttempts ?? 0) + 1;
+    if (group.healAttempts > MAX_HEAL_ATTEMPTS) {
+        group.status = "failed";
+        group.reason = HEAL_FAILED_REASON;
+        updateGroupMessages(group);
+        return;
+    }
+
+    logger.warn(`re-decrypting attachment group ${group.id}: its decrypted blob url failed to load (attempt ${group.healAttempts})`);
+    group.status = "waiting";
+    void decryptAttachmentGroup(group);
 }
 
 /** Removes a raw encrypted-file card from the message; the accessory card represents it instead */
@@ -565,9 +621,10 @@ function registerGroupPart(
     if (existing) {
         // the same attachment re-announced (MESSAGE_UPDATE) is fine; a
         // different upload claiming an occupied slot is not registered
-        return existing.messageId === message.id && existing.attachmentId === attachment.id
-            ? group
-            : null;
+        if (existing.messageId !== message.id || existing.attachmentId !== attachment.id) return null;
+        // keep the re-signed cdn link fresh for any later re-decrypt
+        existing.url = attachment.url;
+        return group;
     }
 
     group.parts.set(info.index, {
@@ -684,6 +741,7 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
         group.verified = signatures.some(v => v === false) ? false
             : signatures.every(v => v === true) ? true : null;
         group.status = "decrypted";
+        retainDecrypted(group);
     } catch (e) {
         logger.info(`Failed to decrypt attachment group ${group.id}`, e);
         group.status = "failed";
