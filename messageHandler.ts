@@ -10,7 +10,7 @@ import { showNotification } from "@api/Notifications";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import { Message } from "@vencord/discord-types";
-import { findByPropsLazy } from "@webpack";
+import { find, findByPropsLazy } from "@webpack";
 import { ChannelStore, DraftType, FluxDispatcher, MessageStore, UserStore } from "@webpack/common";
 
 import { handleEncryptedAttachments, maybeSendPendingParts } from "./attachments";
@@ -20,8 +20,8 @@ import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 import { openPgpSettings } from "./openSettings";
 import { autoUnlockSettled } from "./rememberedPassphrase";
 import { settings } from "./settings";
-import { convertStickersToFiles, shouldSendStickersAsFiles } from "./stickerUpload";
 import { dropAttachmentStates, dropMessageFromGroups, enabledChannels, messageGroups, messageStates, type PartGroup, partGroups, pendingMessages } from "./state";
+import { convertStickersToFiles, shouldSendStickersAsFiles } from "./stickerUpload";
 
 const logger = new Logger("PgpEncrypt", "#7289da");
 
@@ -158,6 +158,78 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject, isE
         notify(`Failed to encrypt message: ${e}`);
         return { cancel: true };
     }
+}
+
+// #endregion
+
+// #region Send guard (fail closed)
+
+/**
+ * Last line of defence. The pre-send/pre-edit hooks above are Vencord core
+ * patches on Discord's composer code, and a Discord update can silently break
+ * them: the composer then sends plaintext while the lock still shows green
+ * (this happened in August 2026). Every text send and edit, with or without
+ * attachments, ends in one REST call to the channel messages endpoint, so
+ * that call is wrapped too. Plaintext reaching it in an encrypted channel is
+ * encrypted right there; if that is not possible the request is rejected, so
+ * the message fails visibly instead of leaking.
+ */
+const MESSAGES_ENDPOINT_RE = /^\/channels\/(\d+)\/messages(?:\/(\d+))?$/;
+
+type RestRequest = { url?: unknown; body?: unknown; };
+type RestFn = (req: RestRequest, ...rest: unknown[]) => Promise<unknown>;
+
+let guardedRestApi: { api: Record<string, RestFn>; post: RestFn; patch: RestFn; } | undefined;
+let warnedHookMissing = false;
+
+export function installSendGuard() {
+    if (guardedRestApi) return;
+    const api = find(m => typeof m === "object" && m.del && m.put && m.post && m.patch);
+    if (!api) {
+        logger.error("Send guard: Discord's REST API module was not found, sends rely on the pre-send hook alone");
+        return;
+    }
+    guardedRestApi = { api, post: api.post, patch: api.patch };
+    api.post = function (this: unknown, req: RestRequest, ...rest: unknown[]) {
+        return guardedRequest(guardedRestApi!.post, this, req, rest, false);
+    };
+    api.patch = function (this: unknown, req: RestRequest, ...rest: unknown[]) {
+        return guardedRequest(guardedRestApi!.patch, this, req, rest, true);
+    };
+}
+
+export function uninstallSendGuard() {
+    if (!guardedRestApi) return;
+    guardedRestApi.api.post = guardedRestApi.post;
+    guardedRestApi.api.patch = guardedRestApi.patch;
+    guardedRestApi = undefined;
+}
+
+async function guardedRequest(original: RestFn, thisArg: unknown, req: RestRequest, rest: unknown[], isEdit: boolean) {
+    const match = typeof req?.url === "string" ? MESSAGES_ENDPOINT_RE.exec(req.url) : null;
+    const body = req?.body as { content?: unknown; } | undefined;
+    // POST without a message id creates, PATCH with one edits; anything else
+    // on this path (reactions, acks, threads) does not match the regex
+    if (match && !!match[2] === isEdit && body && typeof body === "object" && typeof body.content === "string") {
+        const [, channelId, messageId] = match;
+        const { content } = body;
+        const covered = enabledChannels.has(channelId) || (isEdit && messageStates.has(messageId));
+        if (covered) {
+            const result = await encryptOutgoing(channelId, body as MessageObject, isEdit);
+            if (result?.cancel) {
+                throw new Error("PgpEncrypt: refused to send plaintext in an encrypted channel");
+            }
+            if (body.content !== content) warnHookMissing();
+        }
+    }
+    return original.apply(thisArg, [req, ...rest]);
+}
+
+function warnHookMissing() {
+    logger.warn("Pre-send hook did not run; the message was encrypted by the send guard instead. Vencord's message events patch is probably broken by a Discord update.");
+    if (warnedHookMissing) return;
+    warnedHookMissing = true;
+    notify("Your message was still encrypted, but Vencord's send hook did not run (a Discord update likely broke it). Update Vencord and rebuild (git pull, pnpm build), then restart Discord.");
 }
 
 // #endregion

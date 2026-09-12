@@ -16,7 +16,7 @@ import { PgpAccessory } from "./components/PgpAccessory";
 import { MAX_SPLIT_PARTS } from "./crypto";
 import { sendGifAsFile, shouldSendGifAsFile } from "./gifUpload";
 import { lock, onKeyChange } from "./keyStore";
-import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, processPendingMessages } from "./messageHandler";
+import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, installSendGuard, processPendingMessages, uninstallSendGuard } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
 import { settings } from "./settings";
 import { clearMessageState, enabledChannels, loadEnabledChannels } from "./state";
@@ -136,10 +136,12 @@ export default definePlugin({
         void tryAutoUnlock();
         await loadEnabledChannels();
         installUploadInterception();
+        installSendGuard();
     },
 
     stop() {
         uninstallUploadInterception();
+        uninstallSendGuard();
         unsubscribeUnlock?.();
         unsubscribeUnlock = undefined;
         // Don't keep the decrypted private key or any plaintext state in memory

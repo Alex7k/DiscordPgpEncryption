@@ -55,19 +55,33 @@ export const isPgpAttachment = (attachment: { filename?: string; }) => /\.pgp(\.
  * outside the ciphertext. Two URLs travel: the media file (vcsrc, what to
  * fetch/preview) and the canonical identity (vcurl, e.g. the tenor page URL —
  * the key Discord's own favorites map uses). The filename field caps at 255
- * bytes; whatever doesn't fit is dropped, identity first.
+ * bytes. The identity is what makes a recipient's favorite behave like a
+ * vanilla one outside encrypted chats (the picker sends the KEY, and a page
+ * URL unfurls into a looping gif where a bare mp4 link plays once), so when
+ * both URLs don't fit, the source falls back to its shorter compact form
+ * (e.g. deproxied) rather than dropping the identity.
  */
 const SOURCE_URL_MARKER = "?vcsrc=";
 const IDENTITY_URL_MARKER = "?vcurl=";
 const MAX_EMBEDDED_FILENAME = 250;
 
-export function packSourceUrl(filename: string, sourceUrl: string, identityUrl?: string): string {
-    let packed = filename + SOURCE_URL_MARKER + sourceUrl;
-    if (packed.length > MAX_EMBEDDED_FILENAME) return filename;
-    if (identityUrl && identityUrl !== sourceUrl && packed.length + IDENTITY_URL_MARKER.length + identityUrl.length <= MAX_EMBEDDED_FILENAME) {
-        packed += IDENTITY_URL_MARKER + identityUrl;
+export function packSourceUrl(filename: string, sourceUrl: string, identityUrl?: string, compactSourceUrl?: string): string {
+    const sources = compactSourceUrl && compactSourceUrl !== sourceUrl
+        ? [sourceUrl, compactSourceUrl]
+        : [sourceUrl];
+
+    if (identityUrl) {
+        for (const src of sources) {
+            if (identityUrl === src) continue;
+            const packed = filename + SOURCE_URL_MARKER + src + IDENTITY_URL_MARKER + identityUrl;
+            if (packed.length <= MAX_EMBEDDED_FILENAME) return packed;
+        }
     }
-    return packed;
+    for (const src of sources) {
+        const packed = filename + SOURCE_URL_MARKER + src;
+        if (packed.length <= MAX_EMBEDDED_FILENAME) return packed;
+    }
+    return filename;
 }
 
 function unpackSourceUrl(embedded: string): { filename: string; sourceUrl?: string; identityUrl?: string; } {

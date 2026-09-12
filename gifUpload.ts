@@ -54,6 +54,23 @@ function isDiscordProxyHost(host: string): boolean {
 }
 
 /**
+ * Undoes Discord's image-proxy wrapping:
+ * images-ext-N.discordapp.net/external/<sig>/https/media.tenor.com/x/y.mp4
+ * -> https://media.tenor.com/x/y.mp4. Null for anything else (including proxy
+ * paths with resize/format segments, which don't map back cleanly).
+ */
+function deproxiedMediaUrl(url: URL): URL | null {
+    if (!isDiscordProxyHost(url.hostname)) return null;
+    const match = /^\/external\/[^/]+\/(https?)\/(.+)$/.exec(url.pathname);
+    if (!match) return null;
+    try {
+        return new URL(`${match[1]}://${match[2]}`);
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Best media URL of a picked gif. Discord-proxied URLs win over direct
  * provider URLs: fetching via the proxy tells the provider nothing (matching
  * what vanilla Discord exposes — the provider sees preview browsing, but not
@@ -228,9 +245,14 @@ async function convertAndSend(channelId: string, gif: PickedGif) {
         // favorite it: the media URL exactly as the picker served it (vanilla
         // favorites store the Discord-proxied form too; /external/ signatures
         // are stable) plus the gif's canonical identity URL, which is what
-        // Discord's favorites map is keyed by
+        // Discord's favorites map is keyed by. The identity must survive the
+        // 255-byte filename cap — without it the favorite gets keyed by the
+        // bare mp4 and plays once instead of looping outside encrypted chats —
+        // so the long proxied media URL falls back to its deproxied form when
+        // both don't fit (that favorite's picker preview then loads from the
+        // provider directly, like search previews already do)
         const identity = typeof gif.url === "string" && gif.url.startsWith("https://") ? gif.url : undefined;
-        name = packSourceUrl(name, media.href, identity);
+        name = packSourceUrl(name, media.href, identity, deproxiedMediaUrl(media)?.href);
         const file = new File([res.data as unknown as BlobPart], name, { type: mimeFromFilename(name) });
 
         // the upload interception encrypts it like any attachment in this channel
