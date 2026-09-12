@@ -100,10 +100,62 @@ export function shouldSendGifAsFile(): boolean {
     return !!channelId && enabledChannels.has(channelId);
 }
 
-/** Replaces the picker's plain-link send. The download and upload run on after the picker closes. */
+/**
+ * shiftKey of the most recent click or key press. The picker's select handler
+ * runs synchronously inside that event's dispatch (it receives only the gif,
+ * not the event), so this is exactly the modifier state of the pick.
+ */
+let lastInputShift = false;
+
+function recordModifier(e: MouseEvent | KeyboardEvent) {
+    lastInputShift = e.shiftKey;
+}
+
+/** The picker's gif tiles (and category tiles): focusable with tabIndex -1 */
+const GIF_TILE_SELECTOR = "#gif-picker-tab-panel [data-focused]";
+
+/**
+ * A shift+press has two browser defaults that a plain click does not: it
+ * extends the text selection from the previous caret (usually the chat
+ * editor) to the pressed tile, and it moves focus to the tile. Discord then
+ * refocuses the editor after a vanilla send, and with a selection spanning
+ * into the picker that nudged the grid by a fixed amount on every pick
+ * (never in encrypted channels, whose send path skips the refocus). Vanilla
+ * hides all of this because the picker closes. Preventing the press's default
+ * action stops both; the click itself still fires.
+ */
+function onMouseDown(e: MouseEvent) {
+    recordModifier(e);
+    if (!keepGifPickerOpen()) return;
+    if (e.target instanceof Element && e.target.closest(GIF_TILE_SELECTOR)) e.preventDefault();
+}
+
+export function installGifPickerShiftTracking() {
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("click", recordModifier, true);
+    document.addEventListener("keydown", recordModifier, true);
+}
+
+export function uninstallGifPickerShiftTracking() {
+    document.removeEventListener("mousedown", onMouseDown, true);
+    document.removeEventListener("click", recordModifier, true);
+    document.removeEventListener("keydown", recordModifier, true);
+    lastInputShift = false;
+}
+
+/**
+ * Patch predicate: was this gif shift-picked, so the picker should stay open
+ * after the send (like the emoji picker does)? Read at pick time by both send
+ * paths: Discord's own (patched in index.tsx) and sendGifAsFile below.
+ */
+export function keepGifPickerOpen(): boolean {
+    return settings.store.gifPickerShiftClick && lastInputShift;
+}
+
+/** Replaces the picker's plain-link send. The download and upload run on after the picker closes (or stays open, for a shift+click). */
 export function sendGifAsFile(gif: PickedGif) {
     const channelId = SelectedChannelStore.getChannelId();
-    ExpressionPickerStore.closeExpressionPicker();
+    if (!keepGifPickerOpen()) ExpressionPickerStore.closeExpressionPicker();
     if (!channelId) return;
     // the download + encrypt + upload takes a few seconds with nothing visible
     showToast("Encrypting GIF…");

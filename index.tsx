@@ -14,7 +14,7 @@ import { About } from "./components/About";
 import { LockIcon, PgpChatBarIcon } from "./components/ChatBarIcon";
 import { PgpAccessory } from "./components/PgpAccessory";
 import { MAX_SPLIT_PARTS } from "./crypto";
-import { sendGifAsFile, shouldSendGifAsFile } from "./gifUpload";
+import { installGifPickerShiftTracking, keepGifPickerOpen, sendGifAsFile, shouldSendGifAsFile, uninstallGifPickerShiftTracking } from "./gifUpload";
 import { lock, onKeyChange } from "./keyStore";
 import { handleLoadMessages, handleMessageCreateOrUpdate, handleMessageDelete, handlePreEdit, handlePreSend, installSendGuard, processPendingMessages, uninstallSendGuard } from "./messageHandler";
 import { tryAutoUnlock } from "./rememberedPassphrase";
@@ -69,6 +69,30 @@ export default definePlugin({
                 replace: "$&if(!this?.props?.className&&$self.shouldSendGifAsFile())return $self.sendGifAsFile($1);"
             }
         },
+        // Shift+click in the GIF picker sends without closing it, like the emoji
+        // picker already does. Vanilla closes the picker twice in the chat input
+        // module: synchronously in its GIF callback (anchored by the analytics
+        // payload), and again in the submit hook once the send promise resolves.
+        // The async one cannot read the modifier state later, so the decision
+        // is captured into a local when submit is called (its 4th parameter is
+        // isGif). The encrypted path checks the same predicate itself.
+        {
+            find: 'source_object:"GIF Picker",gif_url:',
+            replacement: [
+                {
+                    match: /(source_object:"GIF Picker",gif_url:.{0,200}?\})(\(0,\i\.\i\)\(\)),/,
+                    replace: "$1$self.keepGifPickerOpen()||$2,"
+                },
+                {
+                    match: /(\i\.useCallback\(\(\i,\i,\i,(\i),\i,\i\)=>\{if\(\i\)return;\i\(!0\);)/,
+                    replace: "$1var vcPgpKeepPicker=$2&&$self.keepGifPickerOpen();"
+                },
+                {
+                    match: /(isGif:\i,gifMetadata:\i\}\)\.then\(\i=>\{.{0,300}?)\(0,(\i\.\i)\)\(\),/,
+                    replace: "$1vcPgpKeepPicker||(0,$2)(),"
+                }
+            ]
+        },
         // Discord rejects an over-limit file at attach time with a Nitro upsell,
         // before our upload() hook can encrypt and split it. Two gates run: a
         // per-file one (maxFileSize(guildId)) and a total-message-size one
@@ -106,6 +130,7 @@ export default definePlugin({
 
     shouldSendGifAsFile,
     sendGifAsFile,
+    keepGifPickerOpen,
 
     composerLimit(realLimit: number): number {
         const channelId = SelectedChannelStore.getChannelId();
@@ -137,11 +162,13 @@ export default definePlugin({
         await loadEnabledChannels();
         installUploadInterception();
         installSendGuard();
+        installGifPickerShiftTracking();
     },
 
     stop() {
         uninstallUploadInterception();
         uninstallSendGuard();
+        uninstallGifPickerShiftTracking();
         unsubscribeUnlock?.();
         unsubscribeUnlock = undefined;
         // Don't keep the decrypted private key or any plaintext state in memory

@@ -21,6 +21,7 @@ Without plugin (not decrypted):
 - Key management
 - Key sharing and trust - share your public key by right clicking the lock icon
 - Gif picker gifs sent as encrypted files (source link is attached, so there is still a button to favorite the gif.)
+- Shift+click gifs in the gif picker to send them without closing the picker, so you can send several in a row
 
 ## Quick install/update (Windows)
 
