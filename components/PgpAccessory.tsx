@@ -12,11 +12,11 @@ import { openMediaModal, showToast, Tooltip, useRef, UserStore, useState } from 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import { decryptAttachment, decryptAttachmentGroup, isPgpAttachment, mimeFromFilename, redecryptAttachment, redecryptAttachmentGroup } from "../attachments";
-import { addGifToFavorites, isGifFavorited, offerPreviewCspOverride, removeGifFromFavorites } from "../gifUpload";
-import { confirmFavoriteGif } from "./FavoriteConfirmModal";
 import { formatFingerprint, getPgpKeyPayload, parseSharedKey, type SharedKeyInfo } from "../crypto";
+import { addGifToFavorites, isGifFavorited, offerPreviewCspOverride, removeGifFromFavorites } from "../gifUpload";
 import { getContacts, setContact } from "../keyStore";
 import { type AttachmentGroup, attachmentGroups, type AttachmentState, attachmentStates, enabledChannels, messageAttachmentGroups, messageStates } from "../state";
+import { confirmFavoriteGif } from "./FavoriteConfirmModal";
 import { ensureUnlocked } from "./UnlockModal";
 
 type ImportStatus = "own" | "new" | "imported" | "changed" | "invalid";
