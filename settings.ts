@@ -25,11 +25,6 @@ export const settings = definePluginSettings({
         description: "Send GIF picker GIFs in encrypted channels as encrypted file uploads. Embeds cannot work on encrypted messages, so GIFs otherwise arrive as bare links.",
         default: true
     },
-    gifPickerShiftClick: {
-        type: OptionType.BOOLEAN,
-        description: "Shift+click a GIF in the GIF picker to send it without closing the picker, so you can send several in a row. Works everywhere",
-        default: true
-    },
     stickerAsFile: {
         type: OptionType.BOOLEAN,
         description: "Send stickers in encrypted channels as encrypted image files instead of plain stickers. Discord's built-in (lottie) stickers cannot be converted and still send unencrypted, with the usual warning",
@@ -44,6 +39,11 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Skip the confirmation dialog when favoriting a GIF from an encrypted chat. The dialog explains that favorites are saved to your Discord account settings, outside end-to-end encryption, and shows which site the GIF comes from",
         default: false
+    },
+    gifPickerShiftClick: {
+        type: OptionType.BOOLEAN,
+        description: "Bonus feature: Shift+click a GIF in the GIF picker to send it without closing the picker, so you can send several in a row. Works everywhere",
+        default: true
     },
     keyManagement: {
         type: OptionType.COMPONENT,

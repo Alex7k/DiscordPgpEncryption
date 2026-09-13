@@ -261,3 +261,31 @@ li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"]
 .vc-pgp-settings-divider {
     margin: 14px 0 0;
 }
+
+/* An about section's collapsed header is a single row, so its heading drops
+   the block margins a standalone heading would carry */
+.vc-h5.vc-pgp-about-section-title {
+    margin: 0;
+    align-self: center;
+}
+
+.vc-pgp-about-section + .vc-pgp-about-section {
+    margin-top: 8px;
+}
+
+/* Discord's reset strips list markers and indentation, so restore them.
+   Sizing matches Paragraph (BaseText "sm") so list items sit with the prose */
+.vc-pgp-about-list {
+    margin: 4px 0 0;
+    padding-left: 22px;
+    list-style: disc outside;
+    font-family: var(--font-primary);
+    font-size: 0.875rem;
+    line-height: normal;
+    color: var(--text-default);
+}
+
+.vc-pgp-about-list li {
+    display: list-item;
+    margin-top: 2px;
+}
