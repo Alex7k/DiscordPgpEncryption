@@ -76,7 +76,7 @@ node --version
 pnpm --version
 ```
 
-## Install
+## Install (manual/dev)
 
 Run these from the folder where you want Vencord installed:
 
