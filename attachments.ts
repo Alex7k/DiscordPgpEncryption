@@ -13,7 +13,7 @@ import { ChannelStore, MessageStore, RestAPI, UserStore } from "@webpack/common"
 import type { PrivateKey } from "openpgp";
 
 import { ensureUnlocked } from "./components/UnlockModal";
-import { decryptFileBytes, encryptFileBytes, makeFilePartMeta, makeGroupId, MAX_ATTACHMENT_PARTS, parseFilePartMeta } from "./crypto";
+import { decryptFileBytes, encryptFileBytes, type FileNotations, GIF_IDENTITY_NOTATION, GIF_SOURCE_NOTATION, makeFilePartMeta, makeGroupId, MAX_ATTACHMENT_PARTS, parseFilePartMeta } from "./crypto";
 import { getContacts, getOwnKey, getSessionKey } from "./keyStore";
 // cycle with messageHandler is fine: only used at call time, never at module init
 import { forceMessageRender } from "./messageHandler";
@@ -50,52 +50,75 @@ export function mimeFromFilename(filename: string): string {
 export const isPgpAttachment = (attachment: { filename?: string; }) => /\.pgp(\.\w+)?$/i.test(attachment.filename ?? "");
 
 /**
- * A picker gif's source rides inside the encrypted OpenPGP filename metadata,
- * so recipients can favorite the gif without the URLs ever being visible
- * outside the ciphertext. Two URLs travel: the media file (vcsrc, what to
- * fetch/preview) and the canonical identity (vcurl, e.g. the tenor page URL —
- * the key Discord's own favorites map uses). The filename field caps at 255
- * bytes. The identity is what makes a recipient's favorite behave like a
- * vanilla one outside encrypted chats (the picker sends the KEY, and a page
- * URL unfurls into a looping gif where a bare mp4 link plays once), so when
- * both URLs don't fit, the source falls back to its shorter compact form
- * (e.g. deproxied) rather than dropping the identity.
+ * A picker gif's source rides inside the ciphertext as signature notations
+ * (see FileNotations in crypto.ts), so recipients can favorite the gif without
+ * the URLs ever being visible to Discord. Two URLs travel: the media file
+ * (what to fetch/preview) and the canonical identity (e.g. the tenor page URL,
+ * the key Discord's own favorites map uses). The identity is what makes a
+ * recipient's favorite behave like a vanilla one outside encrypted chats: the
+ * picker sends the KEY, and a page URL unfurls into a looping gif where a bare
+ * mp4 link plays once.
  */
-const SOURCE_URL_MARKER = "?vcsrc=";
-const IDENTITY_URL_MARKER = "?vcurl=";
-const MAX_EMBEDDED_FILENAME = 250;
-
-export function packSourceUrl(filename: string, sourceUrl: string, identityUrl?: string, compactSourceUrl?: string): string {
-    const sources = compactSourceUrl && compactSourceUrl !== sourceUrl
-        ? [sourceUrl, compactSourceUrl]
-        : [sourceUrl];
-
-    if (identityUrl) {
-        for (const src of sources) {
-            if (identityUrl === src) continue;
-            const packed = filename + SOURCE_URL_MARKER + src + IDENTITY_URL_MARKER + identityUrl;
-            if (packed.length <= MAX_EMBEDDED_FILENAME) return packed;
-        }
-    }
-    for (const src of sources) {
-        const packed = filename + SOURCE_URL_MARKER + src;
-        if (packed.length <= MAX_EMBEDDED_FILENAME) return packed;
-    }
-    return filename;
+export interface GifSource {
+    sourceUrl: string;
+    identityUrl?: string;
 }
 
-function unpackSourceUrl(embedded: string): { filename: string; sourceUrl?: string; identityUrl?: string; } {
-    const srcIdx = embedded.indexOf(SOURCE_URL_MARKER);
+/**
+ * Source URLs of gif files waiting to go through the upload interception,
+ * keyed by the very File object the sender hands to CloudUpload. The URLs
+ * must not travel in anything Discord sees (filename, description), so they
+ * are looked up here at encryption time and folded into the signature.
+ */
+const gifSources = new WeakMap<File, GifSource>();
+
+export function markGifSource(file: File, source: GifSource) {
+    gifSources.set(file, source);
+}
+
+function gifSourceNotations(file: File): FileNotations {
+    const source = gifSources.get(file);
+    if (!source) return {};
+    const notations: FileNotations = { [GIF_SOURCE_NOTATION]: source.sourceUrl };
+    if (source.identityUrl && source.identityUrl !== source.sourceUrl) notations[GIF_IDENTITY_NOTATION] = source.identityUrl;
+    return notations;
+}
+
+// Older plugin versions packed the URLs into the literal packet's filename
+// field instead, silently dropping them when the 255-byte cap was exceeded
+// (long Discord CDN URLs). Still read for messages sent by those versions.
+const LEGACY_SOURCE_URL_MARKER = "?vcsrc=";
+const LEGACY_IDENTITY_URL_MARKER = "?vcurl=";
+
+function unpackLegacySourceUrl(embedded: string): { filename: string; source?: GifSource; } {
+    const srcIdx = embedded.indexOf(LEGACY_SOURCE_URL_MARKER);
     if (srcIdx === -1) return { filename: embedded };
 
-    let rest = embedded.slice(srcIdx + SOURCE_URL_MARKER.length);
+    let sourceUrl = embedded.slice(srcIdx + LEGACY_SOURCE_URL_MARKER.length);
     let identityUrl: string | undefined;
-    const idIdx = rest.indexOf(IDENTITY_URL_MARKER);
+    const idIdx = sourceUrl.indexOf(LEGACY_IDENTITY_URL_MARKER);
     if (idIdx !== -1) {
-        identityUrl = rest.slice(idIdx + IDENTITY_URL_MARKER.length);
-        rest = rest.slice(0, idIdx);
+        identityUrl = sourceUrl.slice(idIdx + LEGACY_IDENTITY_URL_MARKER.length);
+        sourceUrl = sourceUrl.slice(0, idIdx);
     }
-    return { filename: embedded.slice(0, srcIdx), sourceUrl: rest, identityUrl };
+    return { filename: embedded.slice(0, srcIdx), source: { sourceUrl, identityUrl } };
+}
+
+/** Where a decrypted file came from: notations of this version, else the legacy filename packing */
+function resolveGifSource(embeddedName: string, notations: FileNotations): { filename: string; source?: GifSource; } {
+    const sourceUrl = notations[GIF_SOURCE_NOTATION];
+    const resolved = sourceUrl
+        ? { filename: embeddedName, source: { sourceUrl, identityUrl: notations[GIF_IDENTITY_NOTATION] } }
+        : unpackLegacySourceUrl(embeddedName);
+
+    // sender-controlled strings that end up in the favorites map and on the clipboard
+    const isHttps = (url?: string) => !!url && /^https:\/\/\S+$/.test(url);
+    if (resolved.source && !isHttps(resolved.source.sourceUrl)) {
+        logger.warn(`Ignoring gif source of ${resolved.filename}: not an https URL`);
+        return { filename: resolved.filename };
+    }
+    if (resolved.source && !isHttps(resolved.source.identityUrl)) resolved.source.identityUrl = undefined;
+    return resolved;
 }
 
 /** How many attachments Discord allows on one message */
@@ -273,7 +296,7 @@ async function encryptUpload(upload: CloudUpload & { [ENCRYPTED_MARK]?: boolean;
 
     if (file.size <= chunkSize) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey);
+        const encryptedBytes = await encryptFileBytes(bytes, file.name, recipientKeys, signingKey, gifSourceNotations(file));
         applyEncryptedFile(upload, new File([encryptedBytes as unknown as BlobPart], ENCRYPTED_FILENAME, { type: "image/webp" }));
         logger.info(`encrypted upload: ${file.name} ${bytes.length}B -> ${ENCRYPTED_FILENAME} ${encryptedBytes.length}B`);
         return;
@@ -327,7 +350,8 @@ async function splitUploadIntoParts(
     // sequential so only one chunk of plaintext + ciphertext is held at a time
     for (let index = 1; index <= total; index++) {
         const chunk = new Uint8Array(await file.slice((index - 1) * chunkSize, index * chunkSize).arrayBuffer());
-        const encrypted = await encryptFileBytes(chunk, makeFilePartMeta(groupId, index, total, file.name), recipientKeys, signingKey);
+        // every part carries the notations, so the reassembler can read them off any one
+        const encrypted = await encryptFileBytes(chunk, makeFilePartMeta(groupId, index, total, file.name), recipientKeys, signingKey, gifSourceNotations(file));
         parts.push(new File([encrypted as unknown as BlobPart], encryptedPartFilename(groupId, index, total), { type: "image/webp" }));
     }
 
@@ -523,14 +547,14 @@ export async function decryptAttachment(channelId: string, messageId: string, at
             verificationKey = (await getContacts())[att.authorId]?.publicKey;
         }
 
-        const { data, filename: embeddedName, verified } = await decryptFileBytes(bytes, privateKey, verificationKey);
-        const { filename, sourceUrl, identityUrl } = unpackSourceUrl(embeddedName);
+        const { data, filename: embeddedName, verified, notations } = await decryptFileBytes(bytes, privateKey, verificationKey);
+        const { filename, source } = resolveGifSource(embeddedName, notations);
 
         if (att.blobUrl) URL.revokeObjectURL(att.blobUrl);
         att.blobUrl = URL.createObjectURL(new Blob([data as unknown as BlobPart], { type: mimeFromFilename(filename) }));
         att.filename = filename;
-        att.sourceUrl = sourceUrl;
-        att.sourcePageUrl = identityUrl;
+        att.sourceUrl = source?.sourceUrl;
+        att.sourcePageUrl = source?.identityUrl;
         att.size = data.length;
         att.verified = verified;
         att.status = "decrypted";
@@ -724,13 +748,14 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
         const chunks: (Uint8Array | undefined)[] = new Array(group.total);
         const signatures: (boolean | null)[] = [];
         let filename = "file";
+        let notations: FileNotations = {};
 
         for (let index = 1; index <= group.total; index++) {
             group.progress = index;
             updateGroupMessages(group);
 
             const bytes = await fetchCiphertext(group.parts.get(index)!);
-            const { data, filename: metaName, verified } = await decryptFileBytes(bytes, privateKey, verificationKey);
+            const { data, filename: metaName, verified, notations: partNotations } = await decryptFileBytes(bytes, privateKey, verificationKey);
 
             const meta = parseFilePartMeta(metaName);
             if (!meta || meta.groupId !== group.id || meta.total !== group.total || chunks[meta.index - 1]) {
@@ -739,17 +764,18 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
             chunks[meta.index - 1] = data;
             signatures.push(verified);
             filename = meta.filename;
+            notations = { ...partNotations, ...notations };
         }
 
         if (chunks.some(chunk => !chunk)) throw new Error("some parts are missing");
 
-        const { filename: cleanName, sourceUrl, identityUrl } = unpackSourceUrl(filename);
+        const { filename: cleanName, source } = resolveGifSource(filename, notations);
 
         if (group.blobUrl) URL.revokeObjectURL(group.blobUrl);
         group.blobUrl = URL.createObjectURL(new Blob(chunks as unknown as BlobPart[], { type: mimeFromFilename(cleanName) }));
         group.filename = cleanName;
-        group.sourceUrl = sourceUrl;
-        group.sourcePageUrl = identityUrl;
+        group.sourceUrl = source?.sourceUrl;
+        group.sourcePageUrl = source?.identityUrl;
         group.size = chunks.reduce((sum, chunk) => sum + chunk!.length, 0);
         // one bad signature taints the whole file; an uncheckable one taints it down to "unknown"
         group.verified = signatures.some(v => v === false) ? false

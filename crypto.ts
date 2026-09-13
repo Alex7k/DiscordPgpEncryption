@@ -314,6 +314,22 @@ export function parseFilePartMeta(name: string): FilePartMeta | null {
 }
 
 /**
+ * Extra per-file metadata (e.g. a picker gif's source URLs) rides as notation
+ * subpackets on the file's signature: inside the ciphertext like the filename,
+ * covered by the signature (hashed subpackets), and with a 64 KiB value limit
+ * instead of the literal packet's 255-byte filename field. Names are in the
+ * user namespace (RFC 4880 §5.2.3.16); readers that don't know them ignore
+ * them, so older plugin versions still decrypt the file itself.
+ */
+export type FileNotations = Record<string, string>;
+
+const NOTATION_DOMAIN = "@pgpencrypt.vencord";
+/** The media URL of a picker gif, what the recipient's favorite fetches */
+export const GIF_SOURCE_NOTATION = "gif-src" + NOTATION_DOMAIN;
+/** The gif's canonical identity URL (e.g. the tenor page), what Discord keys favorites by */
+export const GIF_IDENTITY_NOTATION = "gif-url" + NOTATION_DOMAIN;
+
+/**
  * Encrypts file bytes for all recipients, signed. The original filename is
  * stored INSIDE the encrypted literal packet, so the upload can carry a
  * generic name without leaking what the file is.
@@ -322,7 +338,8 @@ export async function encryptFileBytes(
     bytes: Uint8Array,
     filename: string,
     recipientArmoredKeys: string[],
-    signingKey: PrivateKey
+    signingKey: PrivateKey,
+    notations: FileNotations = {}
 ): Promise<Uint8Array> {
     const encryptionKeys = await Promise.all(recipientArmoredKeys.map(armoredKey => readKey({ armoredKey })));
 
@@ -330,6 +347,12 @@ export async function encryptFileBytes(
         message: await createMessage({ binary: bytes, filename }),
         encryptionKeys,
         signingKeys: signingKey,
+        signatureNotations: Object.entries(notations).map(([name, value]) => ({
+            name,
+            value: new TextEncoder().encode(value),
+            humanReadable: true,
+            critical: false
+        })),
         format: "binary"
     }) as Uint8Array;
 }
@@ -338,6 +361,36 @@ export interface DecryptedFile {
     data: Uint8Array;
     filename: string;
     verified: boolean | null;
+    /** Our notations from the file's signature (see FileNotations); empty when unsigned */
+    notations: FileNotations;
+}
+
+/**
+ * Reads our notations off the signature packets. Available whether or not the
+ * signature could be checked: like the filename, they are still confidential
+ * (inside the ciphertext), just unauthenticated until the sender's key is known.
+ */
+async function readFileNotations(signatures: any[]): Promise<FileNotations> {
+    const notations: FileNotations = {};
+    for (const sig of signatures) {
+        let packets: any[];
+        try {
+            packets = (await sig.signature)?.packets ?? [];
+        } catch {
+            continue;
+        }
+        for (const packet of packets) {
+            for (const { name, value } of packet?.rawNotations ?? []) {
+                if (typeof name !== "string" || !name.endsWith(NOTATION_DOMAIN) || name in notations) continue;
+                try {
+                    notations[name] = new TextDecoder("utf-8", { fatal: true }).decode(value);
+                } catch {
+                    logger.warn(`Ignoring notation ${name}: value is not valid UTF-8`);
+                }
+            }
+        }
+    }
+    return notations;
 }
 
 /** Decrypts encrypted file bytes, recovering the embedded original filename */
@@ -359,8 +412,9 @@ export async function decryptFileBytes(
     }) as { data: Uint8Array; signatures: any[]; filename: string; };
 
     const verified = verificationKeys ? await resolveVerified(signatures) : null;
+    const notations = await readFileNotations(signatures);
 
-    return { data, filename: filename || "file", verified };
+    return { data, filename: filename || "file", verified, notations };
 }
 
 /** Decrypts the base64 payload of a "pgp:..." message. Throws if not encrypted to this key. */
