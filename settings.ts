@@ -10,6 +10,10 @@ import { OptionType } from "@utils/types";
 import { KeySettings } from "./components/KeySettings";
 
 export const settings = definePluginSettings({
+    keyManagement: {
+        type: OptionType.COMPONENT,
+        component: KeySettings
+    },
     encryptAttachments: {
         type: OptionType.BOOLEAN,
         description: "Encrypt attachments sent in encrypted channels (they upload as generic encrypted.pgp files)",
@@ -44,10 +48,6 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Bonus feature: Shift+click a GIF in the GIF picker to send it without closing the picker, so you can send several in a row. Works everywhere",
         default: true
-    },
-    keyManagement: {
-        type: OptionType.COMPONENT,
-        component: KeySettings
     },
     /**
      * Hosts whose favorite-gif privacy dialog the user already confirmed once.
