@@ -85,7 +85,7 @@ function WhyCare() {
                 Try to move communication to encrypted mediums like <Link href="https://signal.org">Signal</Link> or similar.
                 A single person spreading awareness can also make a huge difference.
                 By the way, you can use PGP anywhere with external tools like
-                "<Link href="https://kleopatra.app/tools/kleopatra-download">Kleopatra</Link>" (Windows) so you can encrypt
+                <Link href="https://kleopatra.app/tools/kleopatra-download">Kleopatra</Link> so you can encrypt
                 messages and copy them into any chat application without any plugins.
             </Paragraph>
         </>
