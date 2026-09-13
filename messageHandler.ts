@@ -105,7 +105,7 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject, isE
     const missing = channel.recipients.filter(id => !contacts[id]);
     if (missing.length > 0) {
         const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
-        notify(`Missing PGP keys for: ${names}. Ask them to share their key, or turn encryption off for this channel.`);
+        notify(`Missing public key${missing.length > 1 ? "s" : ""} for: ${names}. Ask them to share their public key, or turn encryption off for this channel.`);
         return { cancel: true };
     }
 
@@ -339,7 +339,7 @@ export async function tryDecryptMessage(channelId: string, message: Message) {
             // auto-unlock is still running; only nag if it didn't work out
             await autoUnlockSettled();
             if (!getSessionKey()) {
-                notify("You received encrypted messages. Click to unlock your PGP key.", () => void ensureUnlocked());
+                notify("You received encrypted messages. Click to unlock your private key.", () => void ensureUnlocked());
             }
         }
         return;

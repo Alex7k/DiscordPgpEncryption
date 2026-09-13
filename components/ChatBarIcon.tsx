@@ -44,7 +44,7 @@ async function canEnable(channel: Channel): Promise<boolean> {
     const missing = channel.recipients.filter(id => !contacts[id]);
     if (missing.length > 0) {
         const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
-        notify(`Missing PGP keys for: ${names}. Right-click the lock to share yours and ask them to do the same.`);
+        notify(`Missing public key${missing.length > 1 ? "s" : ""} for: ${names}. Ask them to right click the lock icon to share their public key so you can import it.`);
         return false;
     }
 

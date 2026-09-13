@@ -40,6 +40,7 @@ export async function setOwnKey(record: OwnKeyRecord) {
 export async function deleteOwnKey() {
     await DataStore.del(OWN_KEY);
     lock();
+    for (const listener of keyListeners) listener();
 }
 
 /** Contact public keys, keyed by Discord user id */
@@ -50,16 +51,27 @@ export async function setContact(userId: string, record: ContactRecord) {
     const contacts = await getContacts();
     contacts[userId] = record;
     await DataStore.set(CONTACTS, contacts);
+    for (const listener of contactListeners) listener();
 }
 
 export async function removeContact(userId: string) {
     const contacts = await getContacts();
     delete contacts[userId];
     await DataStore.set(CONTACTS, contacts);
+    for (const listener of contactListeners) listener();
 }
 
 export async function clearContacts() {
     await DataStore.del(CONTACTS);
+    for (const listener of contactListeners) listener();
+}
+
+const contactListeners = new Set<() => void>();
+
+/** Register a callback fired whenever a contact key is imported, removed, or all are cleared */
+export function onContactsChange(listener: () => void) {
+    contactListeners.add(listener);
+    return () => contactListeners.delete(listener);
 }
 
 // The decrypted private key is only ever held in memory, never persisted
@@ -67,7 +79,7 @@ let sessionKey: PrivateKey | null = null;
 
 const keyListeners = new Set<() => void>();
 
-/** Register a callback fired whenever the private key is unlocked or the keypair changes */
+/** Register a callback fired whenever the private key is unlocked or the keypair is set or deleted */
 export function onKeyChange(listener: () => void) {
     keyListeners.add(listener);
     return () => keyListeners.delete(listener);

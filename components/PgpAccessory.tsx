@@ -48,7 +48,7 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
     if (!info) return null;
 
     if (info.status === "invalid") {
-        return <div className="vc-pgp-accessory vc-pgp-failed">🔑 Shared PGP key could not be parsed</div>;
+        return <div className="vc-pgp-accessory vc-pgp-failed">🔑 Shared public key could not be parsed</div>;
     }
 
     const { key } = info as Required<ShareInfo>;
@@ -61,7 +61,7 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
             fingerprint: key.fingerprint,
             importedAt: Date.now()
         });
-        showToast(`Imported PGP key for ${authorName}`);
+        showToast(`Imported public key for ${authorName}`);
         setNonce(n => n + 1);
     }
 
@@ -69,13 +69,13 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
         case "own":
             return (
                 <div className="vc-pgp-accessory">
-                    🔑 Your public PGP key · <span className="vc-pgp-fingerprint">{fingerprint}</span>
+                    🔑 Your public key · <span className="vc-pgp-fingerprint">{fingerprint}</span>
                 </div>
             );
         case "imported":
             return (
                 <div className="vc-pgp-accessory">
-                    🔑 {authorName}'s PGP key · <span className="vc-pgp-fingerprint">{fingerprint}</span> · ✓ imported
+                    🔑 {authorName}'s public key · <span className="vc-pgp-fingerprint">{fingerprint}</span> · ✓ imported
                 </div>
             );
         case "changed":
@@ -94,7 +94,7 @@ function KeyShareCard({ message, payload }: { message: Message; payload: string;
         case "new":
             return (
                 <div className="vc-pgp-accessory vc-pgp-card">
-                    <div>🔑 {authorName} shared their PGP public key ({key.userID})</div>
+                    <div>🔑 {authorName} shared their public key ({key.userID})</div>
                     <div className="vc-pgp-fingerprint">{fingerprint}</div>
                     <Button size="small" onClick={importKey}>
                         Import key
@@ -299,7 +299,7 @@ function AttachmentCard({ message, att }: { message: Message; att: AttachmentSta
         case "fetching":
             return <FileCard sub="Decrypting..." />;
         case "locked":
-            return <FileCard sub={`${formatSize(att.size)} · your key is locked`} actionLabel="Unlock" action={() => void ensureUnlocked()} />;
+            return <FileCard sub={`${formatSize(att.size)} · your private key is locked`} actionLabel="Unlock" action={() => void ensureUnlocked()} />;
         case "too-large":
             return <FileCard sub={formatSize(att.size)} actionLabel="Decrypt" action={retry} />;
         case "failed":
@@ -344,7 +344,7 @@ function GroupAttachmentCard({ message, group }: { message: Message; group: Atta
         case "waiting":
             return <FileCard sub={`receiving parts · ${group.parts.size}/${group.total}`} progress={group.parts.size / group.total} />;
         case "locked":
-            return <FileCard sub={`${formatSize(group.size)} · your key is locked`} actionLabel="Unlock" action={() => void ensureUnlocked()} />;
+            return <FileCard sub={`${formatSize(group.size)} · your private key is locked`} actionLabel="Unlock" action={() => void ensureUnlocked()} />;
         case "too-large":
             return <FileCard sub={formatSize(group.size)} actionLabel="Decrypt" action={() => void decryptAttachmentGroup(group)} />;
         case "fetching":
@@ -455,7 +455,7 @@ function StatusLine({ message }: { message: Message; }) {
                     className="vc-pgp-accessory vc-pgp-clickable"
                     onClick={() => void ensureUnlocked()}
                 >
-                    🔒 Encrypted message. Click to unlock your PGP key
+                    🔒 Encrypted message. Click to unlock your private key
                 </div>
             );
         case "failed":

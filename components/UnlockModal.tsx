@@ -41,7 +41,7 @@ function UnlockModal({ props, resolve }: { props: RenderModalProps; resolve: (ke
     return (
         <Modal
             {...props}
-            title="Unlock PGP Key"
+            title="Unlock Private Key"
             actions={[
                 {
                     text: "Cancel",

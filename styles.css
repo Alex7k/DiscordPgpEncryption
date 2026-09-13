@@ -258,10 +258,6 @@ li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"]
     margin-top: 12px;
 }
 
-.vc-pgp-settings-divider {
-    margin: 14px 0 0;
-}
-
 /* An about section's collapsed header is a single row, so its heading drops
    the block margins a standalone heading would carry */
 .vc-h5.vc-pgp-about-section-title {
@@ -288,4 +284,174 @@ li:has([id^="message-accessories-"] .vc-pgp-decrypting) [id^="message-content-"]
 .vc-pgp-about-list li {
     display: list-item;
     margin-top: 2px;
+}
+
+/* ---- Key management: the "My keypair" card ---- */
+
+/* the keypair is the one thing on the page the user owns; it alone gets the
+   card chrome so the import row, contact list and reset stay flat around it */
+.vc-pgp-keycard {
+    margin-top: 4px;
+    overflow: hidden;
+}
+
+.vc-pgp-keycard-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.vc-pgp-keycard-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+
+.vc-pgp-keycard-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--text-muted);
+}
+
+.vc-pgp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 10px 0 9px;
+    border-radius: 11px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.vc-pgp-pill-on {
+    background: color-mix(in srgb, var(--status-positive, #23a55a) 15%, transparent);
+    color: var(--status-positive-text, var(--status-positive, #23a55a));
+}
+
+.vc-pgp-pill-off {
+    background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+    color: var(--text-muted);
+}
+
+.vc-pgp-pill-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.vc-pgp-keycard-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 14px 16px;
+}
+
+/* the generate form's own spacing classes stack fine inside the body gap */
+.vc-pgp-keycard-body > .vc-pgp-settings-fields {
+    margin-top: 0;
+}
+
+.vc-pgp-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 20px;
+    row-gap: 8px;
+    align-items: baseline;
+    margin: 0;
+}
+
+.vc-pgp-facts dt {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.vc-pgp-facts dd {
+    margin: 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--text-default);
+}
+
+.vc-pgp-facts-fingerprint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.vc-pgp-facts-fingerprint code {
+    font-family: var(--font-code);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    color: var(--text-strong);
+    background: var(--background-base-lowest, var(--background-tertiary));
+    padding: 3px 8px;
+    border-radius: 4px;
+    user-select: text;
+}
+
+.vc-pgp-icon-btn {
+    color: var(--text-muted);
+}
+
+.vc-pgp-icon-btn:hover {
+    color: var(--text-default);
+}
+
+.vc-pgp-inline-btn.vc-text-btn-base {
+    display: inline;
+    padding: 0;
+    height: auto;
+    font-size: inherit;
+    vertical-align: baseline;
+}
+
+.vc-pgp-keycard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.vc-pgp-keycard-spacer {
+    flex: 1;
+}
+
+/* import and contacts fold away under one-line rows; the subtitle rides in the header */
+.vc-pgp-collapsible {
+    margin-top: 12px;
+}
+
+.vc-pgp-collapsible + .vc-pgp-collapsible {
+    margin-top: 8px;
+}
+
+.vc-pgp-collapsed-sub.vc-text-base {
+    margin-top: 2px;
+    line-height: 16px;
+}
+
+.vc-pgp-danger-zone {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
 }

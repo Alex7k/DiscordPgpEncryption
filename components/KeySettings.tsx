@@ -4,21 +4,21 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { Button } from "@components/Button";
-import { Divider } from "@components/Divider";
+import { Button, TextButton } from "@components/Button";
+import { Card } from "@components/Card";
 import { Flex } from "@components/Flex";
 import { Heading } from "@components/Heading";
+import { CopyIcon, DownArrow, RightArrow } from "@components/Icons";
 import { Paragraph } from "@components/Paragraph";
 import { copyWithToast } from "@utils/discord";
 import { Margins } from "@utils/margins";
 import { useAwaiter } from "@utils/react";
-import { Alerts, showToast, TextArea, TextInput, UserStore, useState } from "@webpack/common";
+import { Alerts, Clickable, showToast, TextArea, TextInput, useEffect, useRef, UserStore, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { formatFingerprint, generateKeyPair, prepareKeyImport } from "../crypto";
-import { clearContacts, deleteOwnKey, getContacts, getOwnKey, isUnlocked, lock, OwnKeyRecord, removeContact, setOwnKey } from "../keyStore";
+import { clearContacts, deleteOwnKey, getContacts, getOwnKey, isUnlocked, lock, onContactsChange, onKeyChange, OwnKeyRecord, removeContact, setOwnKey } from "../keyStore";
 import { forgetPassphrase, hasRememberedPassphrase } from "../rememberedPassphrase";
-import { clearEnabledChannels, clearMessageState } from "../state";
 import { openBackupModal } from "./BackupModal";
 import { ensureUnlocked } from "./UnlockModal";
 
@@ -41,6 +41,66 @@ function SettingsField({ title, description, className, children }: {
             )}
             {children}
         </div>
+    );
+}
+
+/**
+ * A collapsed row in the same clothes as Vencord's ExpandableSection (whose
+ * stylesheet About.tsx already loads). Rolled by hand so the content can be
+ * plain JSX with props: ExpandableSection takes a component type and remounts
+ * the content whenever the parent re-renders with a fresh render function,
+ * which would wipe a half-pasted key backup every time the lock state changes.
+ */
+function CollapsibleSection({ title, subtitle, children }: { title: string; subtitle: ReactNode; children: ReactNode; }) {
+    const [expanded, setExpanded] = useState(false);
+    const Arrow = expanded ? DownArrow : RightArrow;
+
+    return (
+        <Card data-expanded={expanded} className="vc-expandable-card vc-pgp-about-section vc-pgp-collapsible">
+            <Clickable className="vc-expandable-card-header" onClick={() => setExpanded(e => !e)}>
+                <div>
+                    <Heading className="vc-pgp-about-section-title">{title}</Heading>
+                    <Paragraph className="vc-pgp-collapsed-sub" size="xs" style={mutedText}>{subtitle}</Paragraph>
+                </div>
+                <Arrow className="vc-expandable-card-icon" />
+            </Clickable>
+            {expanded && <div className="vc-expandable-card-content">{children}</div>}
+        </Card>
+    );
+}
+
+function KeyIcon() {
+    return (
+        <svg className="vc-pgp-keycard-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="8" cy="15" r="4" />
+            <path d="M10.85 12.15 19 4" />
+            <path d="M18 5l2 2" />
+            <path d="M15 8l2 2" />
+        </svg>
+    );
+}
+
+/**
+ * The card frame every keypair state shares, so the section keeps its place
+ * and shape whether there is a key, a locked key, or none yet.
+ */
+function KeypairCard({ status, children }: { status: "unlocked" | "locked" | "none"; children: ReactNode; }) {
+    const pill = status === "unlocked"
+        ? <span className="vc-pgp-pill vc-pgp-pill-on"><span className="vc-pgp-pill-dot" />Unlocked</span>
+        : status === "locked"
+            ? <span className="vc-pgp-pill vc-pgp-pill-off">Locked</span>
+            : <span className="vc-pgp-pill vc-pgp-pill-off">No keypair yet</span>;
+
+    return (
+        <Card className="vc-pgp-keycard">
+            <div className="vc-pgp-keycard-head">
+                <div className="vc-pgp-keycard-title"><KeyIcon />My keypair</div>
+                {pill}
+            </div>
+            <div className="vc-pgp-keycard-body">
+                {children}
+            </div>
+        </Card>
     );
 }
 
@@ -76,9 +136,9 @@ function GenerateKeyForm({ onGenerated }: { onGenerated: () => void; }) {
     }
 
     return (
-        <>
+        <KeypairCard status="none">
             <Paragraph>
-                You don't have a PGP keypair yet. Generate one to start sending and receiving encrypted messages.
+                Generate one to start sending and receiving encrypted messages.
                 The private key is stored encrypted with your passphrase and unlocked once per Discord session.
             </Paragraph>
             <Paragraph className={Margins.top8} size="xs" style={mutedText}>
@@ -124,7 +184,7 @@ function GenerateKeyForm({ onGenerated }: { onGenerated: () => void; }) {
             >
                 {busy ? "Generating..." : "Generate Keypair"}
             </Button>
-        </>
+        </KeypairCard>
     );
 }
 
@@ -180,10 +240,9 @@ function ImportKeyForm({ hasExisting, onImported }: { hasExisting: boolean; onIm
 
     return (
         <>
-            <Heading className="vc-pgp-settings-section-title">Import an existing keypair</Heading>
             <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
                 Paste a private key backup (the "-----BEGIN PGP PRIVATE KEY BLOCK-----" text created by
-                "Backup Private Key" on your other device) and enter the passphrase that unlocks it.
+                "Back Up Private Key" on your other device) and enter the passphrase that unlocks it.
                 If you paste an unprotected key, it will be locked with the passphrase you enter here.
             </Paragraph>
 
@@ -237,13 +296,13 @@ function KeyInfo({ record, onChanged }: { record: OwnKeyRecord; onChanged: () =>
             // A remembered passphrase would silently undo the lock on next startup
             if (await hasRememberedPassphrase()) {
                 await forgetPassphrase();
-                showToast("PGP key locked and saved passphrase forgotten");
+                showToast("Private key locked and saved passphrase forgotten");
             } else {
-                showToast("PGP key locked");
+                showToast("Private key locked");
             }
         } else {
             const key = await ensureUnlocked();
-            if (key) showToast("PGP key unlocked for this session");
+            if (key) showToast("Private key unlocked for this session");
         }
         rerender();
     }
@@ -269,18 +328,40 @@ function KeyInfo({ record, onChanged }: { record: OwnKeyRecord; onChanged: () =>
         });
     }
 
+    const fingerprint = formatFingerprint(record.fingerprint);
+
     return (
-        <>
-            <Heading>Fingerprint</Heading>
-            <Paragraph style={{ fontFamily: "var(--font-code)", userSelect: "text" }}>
-                {formatFingerprint(record.fingerprint)}
-            </Paragraph>
+        <KeypairCard status={isUnlocked() ? "unlocked" : "locked"}>
+            <dl className="vc-pgp-facts">
+                <dt>Name</dt>
+                <dd>{record.userName}</dd>
 
-            <Paragraph className={Margins.top8} size="xs" style={mutedText}>
-                {record.userName} · created {new Date(record.createdAt).toLocaleDateString()} · {isUnlocked() ? "🔓 unlocked" : "🔒 locked"}{remembered ? " · passphrase remembered on this device" : ""}
-            </Paragraph>
+                <dt>Fingerprint</dt>
+                <dd className="vc-pgp-facts-fingerprint">
+                    <code>{fingerprint}</code>
+                    <Button
+                        size="iconOnly"
+                        variant="none"
+                        className="vc-pgp-icon-btn"
+                        aria-label="Copy fingerprint"
+                        onClick={() => copyWithToast(fingerprint, "Fingerprint copied!")}
+                    >
+                        <CopyIcon width={16} height={16} />
+                    </Button>
+                </dd>
 
-            <Flex className={Margins.top16} style={{ gap: "0.5em", flexWrap: "wrap" }}>
+                <dt>Created</dt>
+                <dd>{new Date(record.createdAt).toLocaleDateString()}</dd>
+
+                <dt>Passphrase</dt>
+                <dd>
+                    {remembered
+                        ? <>Remembered on this device{" "}<TextButton variant="link" className="vc-pgp-inline-btn" onClick={forgetSaved}>Forget</TextButton></>
+                        : "Asked once per Discord session"}
+                </dd>
+            </dl>
+
+            <div className="vc-pgp-keycard-actions">
                 <Button size="small" onClick={() => copyWithToast(record.publicKey, "Public key copied!")}>
                     Copy Public Key
                 </Button>
@@ -289,42 +370,35 @@ function KeyInfo({ record, onChanged }: { record: OwnKeyRecord; onChanged: () =>
                     variant="secondary"
                     onClick={() => copyWithToast(record.privateKey, "Encrypted private key copied. Store it somewhere safe!")}
                 >
-                    Backup Private Key
+                    Back Up Private Key
                 </Button>
                 <Button size="small" variant="secondary" onClick={toggleLock}>
                     {isUnlocked() ? "Lock" : "Unlock"}
                 </Button>
-                {remembered && (
-                    <Button size="small" variant="secondary" onClick={forgetSaved}>
-                        Forget Saved Passphrase
-                    </Button>
-                )}
-                <Button size="small" variant="dangerPrimary" onClick={confirmDelete}>
-                    Delete Keypair
-                </Button>
-            </Flex>
+                <span className="vc-pgp-keycard-spacer" />
+                <TextButton variant="danger" onClick={confirmDelete}>
+                    Delete keypair
+                </TextButton>
+            </div>
 
-            <Heading className={Margins.top16}>⚠ BACK UP THE KEY + PASSPHRASE!</Heading>
             <Paragraph size="xs" style={mutedText}>
-                Click "Backup Private Key" above. Store the private key AND passphrase somewhere safe, such as a password manager.
-                If you delete or lose the keypair without a backup, every message ever encrypted to this key becomes permanently unreadable.
+                Keep a backup of the private key and its passphrase, for example in a password manager.
+                Without one, losing this key means every message encrypted to it stays unreadable.
+                On another device, import that backup rather than generating a second key.
             </Paragraph>
-            <Paragraph className={Margins.top8} size="xs" style={mutedText}>
-                Using Discord on several devices? Do NOT generate a second key. Import this same backup on each
-                device instead (below, under "Import an existing keypair"). Contacts encrypt to exactly one key
-                per account, so only devices holding this key can read your messages.
-            </Paragraph>
-        </>
+        </KeypairCard>
     );
 }
 
-function ContactsPanel({ reloadToken }: { reloadToken: number; }) {
+function ContactsSection() {
     const [nonce, setNonce] = useState(0);
     const rerender = () => setNonce(n => n + 1);
+    // imports from the chat, removals here, and the reset at the bottom of the page
+    useEffect(() => { const off = onContactsChange(rerender); return () => void off(); }, []);
 
     const [contacts] = useAwaiter(getContacts, {
         fallbackValue: {},
-        deps: [nonce, reloadToken]
+        deps: [nonce]
     });
     const entries = Object.entries(contacts ?? {});
 
@@ -348,13 +422,16 @@ function ContactsPanel({ reloadToken }: { reloadToken: number; }) {
         });
     }
 
+    const subtitle = entries.length === 0
+        ? "No imported keys yet."
+        : `${entries.length} imported ${entries.length === 1 ? "key" : "keys"}.`;
+
     return (
-        <>
-            <Heading className="vc-pgp-settings-section-title">Trusted contacts</Heading>
+        <CollapsibleSection title="Trusted contacts" subtitle={subtitle}>
             {entries.length === 0
                 ? (
                     <Paragraph className="vc-pgp-settings-help" size="xs" style={mutedText}>
-                        No imported keys yet. When someone shares their public key in a DM, click the "import" button
+                        When someone shares their public key in a DM, click the "import" button
                         and it will show up here.
                     </Paragraph>
                 )
@@ -383,51 +460,26 @@ function ContactsPanel({ reloadToken }: { reloadToken: number; }) {
                     Forget All Contacts
                 </Button>
             )}
-        </>
-    );
-}
-
-function ResetPanel({ onChanged }: { onChanged: () => void; }) {
-    function confirmReset() {
-        Alerts.show({
-            title: "Reset all plugin data?",
-            body: "Deletes your keypair, every trusted contact key, the saved passphrase, and all per-channel "
-                + "encryption toggles on this device. Unless you have a key backup, messages encrypted to this "
-                + "key become permanently unreadable. This cannot be undone.",
-            confirmText: "Reset everything",
-            cancelText: "Cancel",
-            onConfirm: async () => {
-                await forgetPassphrase();
-                await deleteOwnKey();
-                await clearContacts();
-                await clearEnabledChannels();
-                clearMessageState();
-                showToast("All PgpEncrypt data wiped. Restart Discord for a clean slate.");
-                onChanged();
-            }
-        });
-    }
-
-    return (
-        <>
-            {/* <Heading className="vc-pgp-settings-section-title">Reset</Heading> */}
-            <Button className="vc-pgp-settings-button" variant="dangerPrimary" onClick={confirmReset}>
-                Reset Plugin Data
-            </Button>
-        </>
+        </CollapsibleSection>
     );
 }
 
 export function KeySettings() {
     const [reloadCount, setReloadCount] = useState(0);
     const reload = () => setReloadCount(c => c + 1);
+    // unlock, generate, import, delete, and the reset at the bottom of the page all land here
+    useEffect(() => { const off = onKeyChange(reload); return () => void off(); }, []);
 
     const [ownKey, , loading] = useAwaiter(getOwnKey, {
         fallbackValue: undefined,
         deps: [reloadCount]
     });
 
-    if (loading) return null;
+    // only the first load hides the section; later reloads keep the mounted
+    // forms (and whatever is typed into them) while the key record refreshes
+    const everLoaded = useRef(false);
+    if (!loading) everLoaded.current = true;
+    if (!everLoaded.current) return null;
 
     return (
         <>
@@ -435,12 +487,15 @@ export function KeySettings() {
                 ? <KeyInfo record={ownKey} onChanged={reload} />
                 : <GenerateKeyForm onGenerated={reload} />
             }
-            <Divider className="vc-pgp-settings-divider" />
-            <ImportKeyForm hasExisting={ownKey != null} onImported={reload} />
-            <Divider className="vc-pgp-settings-divider" />
-            <ContactsPanel reloadToken={reloadCount} />
-            <Divider className="vc-pgp-settings-divider" />
-            <ResetPanel onChanged={reload} />
+
+            <CollapsibleSection
+                title="Import an existing keypair"
+                subtitle="Restore a backup from another device. Replaces the keypair above."
+            >
+                <ImportKeyForm hasExisting={ownKey != null} onImported={reload} />
+            </CollapsibleSection>
+
+            <ContactsSection />
         </>
     );
 }

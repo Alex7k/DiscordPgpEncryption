@@ -8,6 +8,7 @@ import { definePluginSettings } from "@api/Settings";
 import { OptionType } from "@utils/types";
 
 import { KeySettings } from "./components/KeySettings";
+import { ResetPanel } from "./components/ResetPanel";
 
 export const settings = definePluginSettings({
     keyManagement: {
@@ -57,5 +58,9 @@ export const settings = definePluginSettings({
     favoriteGifAckHosts: {
         type: OptionType.CUSTOM,
         default: [] as string[]
+    },
+    resetData: {
+        type: OptionType.COMPONENT,
+        component: ResetPanel
     }
 });

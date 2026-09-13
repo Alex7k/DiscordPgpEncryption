@@ -281,7 +281,7 @@ async function encryptUpload(upload: CloudUpload & { [ENCRYPTED_MARK]?: boolean;
     const missing = channel.recipients.filter(id => !contacts[id]);
     if (missing.length > 0) {
         const names = missing.map(id => UserStore.getUser(id)?.username ?? id).join(", ");
-        notify(`Attachment not sent: missing PGP keys for ${names}.`);
+        notify(`Attachment not sent: missing public key${missing.length > 1 ? "s" : ""} for ${names}.`);
         throw new Error("PgpEncrypt: missing recipient keys, upload aborted");
     }
 
@@ -536,7 +536,7 @@ export async function decryptAttachment(channelId: string, messageId: string, at
 
     try {
         const privateKey = getSessionKey();
-        if (!privateKey) throw new Error("your PGP key is locked");
+        if (!privateKey) throw new Error("your private key is locked");
 
         const bytes = await fetchCiphertext(att);
 
@@ -736,7 +736,7 @@ export async function decryptAttachmentGroup(group: AttachmentGroup) {
 
     try {
         const privateKey = getSessionKey();
-        if (!privateKey) throw new Error("your PGP key is locked");
+        if (!privateKey) throw new Error("your private key is locked");
 
         let verificationKey: string | undefined;
         if (group.authorId === UserStore.getCurrentUser()?.id) {
