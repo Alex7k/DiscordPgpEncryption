@@ -44,8 +44,8 @@ function AsymmetricEncryption() {
     );
 }
 
-/** The case for encrypting Discord. Worth reading once, in the way of the settings every time after that. */
-function Preface() {
+/** The case for encrypting Discord at all. Collapsed by default: worth reading once, in the way of the settings after that. */
+function WhyCare() {
     return (
         <>
             <Heading>Discord is not end-to-end encrypted</Heading>
@@ -99,7 +99,7 @@ export function About() {
                 <Heading className="vc-pgp-about-section-title">Simple explanation of asymmetric encryption</Heading>
             </ExpandableSection>
 
-            <ExpandableSection className="vc-pgp-about-section" renderContent={Preface}>
+            <ExpandableSection className="vc-pgp-about-section" renderContent={WhyCare}>
                 <Heading className="vc-pgp-about-section-title">Why care?</Heading>
             </ExpandableSection>
 
