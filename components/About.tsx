@@ -15,17 +15,17 @@ function AsymmetricEncryption() {
     return (
         <>
             <Paragraph>
-                Users first generate themselves a random keypair (private+public key).
+                Anyone can generate themselves a random keypair (private+public key).
                 The public key is derived from the private key, but the reverse is impossible.
             </Paragraph>
 
-            <Paragraph className={Margins.top16}>Your private Key can:</Paragraph>
+            <Paragraph className={Margins.top16}>Your private key can:</Paragraph>
             <ul className="vc-pgp-about-list">
                 <li>Decrypt messages people encrypt to you</li>
                 <li>Sign messages so people know you wrote them</li>
             </ul>
 
-            <Paragraph className={Margins.top8}>Your public Key can:</Paragraph>
+            <Paragraph className={Margins.top8}>Your public key can:</Paragraph>
             <ul className="vc-pgp-about-list">
                 <li>Be used by others to encrypt messages that only you can decrypt</li>
                 <li>Verify that a message was signed by you</li>
@@ -51,7 +51,7 @@ function Preface() {
             <Heading>Discord is not end-to-end encrypted</Heading>
             <Paragraph>
                 Employees, hackers, feds can read your messages. Accidentally leak your session cookie? Whoever has it
-                can export every single message you've sent. Data breaches are common and not always are disclosed.
+                can export every single message you've sent. Data breaches are common and are not always are disclosed.
                 You can be accidentally tied into an investigation and find yourself in the scope of a subpoena, even if
                 you did nothing wrong.
                 Discord retains messages and makes them difficult to delete in bulk.
@@ -68,7 +68,7 @@ function Preface() {
             <Heading className={Margins.top16}>Encrypting by default helps those who need it most</Heading>
             <Paragraph>
                 Using insecure tools by default normalizes surveillance and makes it harder for others to maintain their privacy.
-                Examples for people that depend on privacy: journalists and their sources, abuse victims, people living under
+                Examples of people that depend on privacy: journalists and their sources, abuse victims, people living under
                 censorship and anyone who's privacy-conscious. If only high-risk people use encryption, the mere
                 act of using it makes them stand out. Privacy works like herd immunity.
             </Paragraph>
@@ -96,7 +96,7 @@ export function About() {
     return (
         <>
             <ExpandableSection className="vc-pgp-about-section" renderContent={AsymmetricEncryption}>
-                <Heading className="vc-pgp-about-section-title">Simple explanation to asymmetric encryption</Heading>
+                <Heading className="vc-pgp-about-section-title">Simple explanation of asymmetric encryption</Heading>
             </ExpandableSection>
 
             <ExpandableSection className="vc-pgp-about-section" renderContent={Preface}>
