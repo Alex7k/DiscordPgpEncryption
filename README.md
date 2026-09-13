@@ -28,10 +28,13 @@ Without plugin (not decrypted):
 `install.ps1` automatically installs and injects Vencord with this plugin. Re-run any time to update. From any PowerShell window:
 
 ```powershell
+Set-ExecutionPolicy Bypass # allows running scripts on windows
 irm https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1 | iex
 ```
 
 After running this, start discord and enable the `PgpEncrypt` plugin in Vencord settings.
+
+Btw, this is the "quick install" so after that you don't need to run the commands in below sections.
 
 ## Prerequisites
 
