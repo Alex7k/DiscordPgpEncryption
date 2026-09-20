@@ -27,8 +27,8 @@ interface PickedGif {
     gif_src?: string;
 }
 
-/** formats the decrypted-attachment card can render inline */
-const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|png|jpe?g)$/i;
+/** formats the decrypted-attachment card can render inline (keep in sync with native.ts) */
+const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|avif|png|jpe?g)$/i;
 
 /**
  * Parses a candidate into a URL if it points at fetchable media. Any https
@@ -68,6 +68,27 @@ function pickMediaUrl(gif: PickedGif): URL | null {
     const rank = (url: URL) =>
         (isDiscordProxyHost(url.hostname) ? 0 : 2) + (/\.gif$/i.test(url.pathname) ? 0 : 1);
     return candidates.sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+/**
+ * Upload filename for a picked gif: the media URL's basename. Converter
+ * endpoints (gifconvert.vxtwitter.com/convert.avif?url=<tweet video>) name
+ * every gif the same, so when the URL wraps a source URL, the name comes from
+ * that source instead, keeping the extension of what was actually fetched.
+ */
+function mediaFileName(media: URL): string {
+    const ext = media.pathname.match(MEDIA_EXT_RE)?.[0] ?? ".gif";
+    let base = media.pathname.split("/").pop() ?? "";
+    const wrapped = media.searchParams.get("url");
+    if (wrapped) {
+        try {
+            base = new URL(wrapped).pathname.split("/").pop() || base;
+        } catch {
+            // not a URL; keep the converter's own basename
+        }
+    }
+    base = base.replace(/\.[^.]*$/, "").replace(/[^\w.-]/g, "");
+    return (base || "gif") + ext;
 }
 
 /**
@@ -272,7 +293,7 @@ async function convertAndSend(channelId: string, gif: PickedGif) {
         const res = await Native.fetchGifMedia(media.href);
         if (!res.ok) return await fallBackToLink(channelId, gif, res.error);
 
-        let name = media.pathname.split("/").pop()?.replace(/[^\w.-]/g, "") || "gif.gif";
+        let name = mediaFileName(media);
         // most "gifs" are really mp4/webm; mark them so the receiving side
         // plays them gif-style (autoplay, loop, no controls) instead of as a video
         if (!/\.gif\.(mp4|webm)$/i.test(name)) name = name.replace(/\.(mp4|webm)$/i, ".gif.$1");

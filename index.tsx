@@ -62,10 +62,12 @@ export default definePlugin({
         // in an encrypted channel (the server only sees ciphertext, so it cannot
         // unfurl). Intercept the selection and send the GIF as an encrypted file
         // instead; same patch site as the GifPaste core plugin, guard included.
+        // The handler used to take only the gif (`gif=>{`); since Sep 2026 it
+        // takes a second argument (`(gif,x)=>{`). Match both.
         {
             find: "handleSelectGIF=",
             replacement: {
-                match: /handleSelectGIF=(\i)=>\{/,
+                match: /handleSelectGIF=\(?(\i)(?:,\i)?\)?=>\{/,
                 replace: "$&if(!this?.props?.className&&$self.shouldSendGifAsFile())return $self.sendGifAsFile($1);"
             }
         },

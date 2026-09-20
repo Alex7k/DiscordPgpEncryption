@@ -8,8 +8,8 @@ import { IpcMainInvokeEvent } from "electron";
 
 const MAX_GIF_BYTES = 100 * 1024 * 1024;
 
-/** media file extensions the renderer-side picker interception sends here */
-const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|png|jpe?g)$/i;
+/** media file extensions the renderer-side picker interception sends here (keep in sync with gifUpload.ts) */
+const MEDIA_EXT_RE = /\.(gif|mp4|webm|webp|avif|png|jpe?g)$/i;
 
 /**
  * Downloads GIF media in the main process, where Discord's renderer CSP does
