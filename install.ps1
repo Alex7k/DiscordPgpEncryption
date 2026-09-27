@@ -1,29 +1,87 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs or updates Vencord with the PgpEncrypt userplugin. Safe to re-run.
+    Installs or updates Vencord or Equicord with the PgpEncrypt userplugin.
+    Safe to re-run.
 
 .DESCRIPTION
-    Installs any missing prerequisites (Git, Node.js 22+, pnpm), then clones or
-    updates Vencord and this plugin, installs dependencies, builds, and injects
-    into Discord. Every step is skipped when it is already done.
+    Installs any missing prerequisites then clones or
+    updates the selected client and this plugin, installs dependencies, builds,
+    and injects into Discord. Every step is skipped when it is already done.
 
-.PARAMETER VencordDir
+.PARAMETER Client
+    Select Vencord or Equicord.
+
+.PARAMETER InstallDir
     Folder of the Vencord checkout. Defaults to the checkout this script sits
     inside, or "$HOME\Vencord" otherwise.
 #>
 [CmdletBinding()]
 param(
-    [string]$VencordDir
+    [ValidateSet("Vencord", "Equicord")]
+    [string]$Client,
+    [string]$InstallDir
 )
 
 $ErrorActionPreference = "Stop"
 
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $scriptPath = $PSCommandPath
+    $temporaryScript = $false
+    if (-not $scriptPath) {
+        $scriptPath = Join-Path $env:TEMP "DiscordPgpEncryption-install-$PID.ps1"
+        Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1" `
+            -OutFile $scriptPath
+        $temporaryScript = $true
+    }
+
+    $powerShellExe = if ($PSVersionTable.PSEdition -eq "Core") {
+        Join-Path $PSHOME "pwsh.exe"
+    }
+    else {
+        Join-Path $PSHOME "powershell.exe"
+    }
+    $argumentList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$scriptPath`"")
+    if ($PSBoundParameters.ContainsKey("Client")) {
+        $argumentList += @("-Client", $Client)
+    }
+    if ($PSBoundParameters.ContainsKey("InstallDir")) {
+        $argumentList += @("-InstallDir", "`"$InstallDir`"")
+    }
+
+    try {
+        Start-Process -FilePath $powerShellExe -Verb RunAs -ArgumentList $argumentList -Wait | Out-Null
+    }
+    finally {
+        if ($temporaryScript -and (Test-Path $scriptPath)) {
+            Remove-Item $scriptPath -Force
+        }
+    }
+    return
+}
+
 $VencordRepo = "https://github.com/Vendicated/Vencord"
+$EquicordRepo = "https://github.com/Equicord/Equicord"
 $PluginRepo = "https://github.com/Alex7k/DiscordPgpEncryption"
 $PluginPath = "src/userplugins/pgpEncrypt"
-$PnpmVersion = "11.9.0"
 $NodeMajorRequired = 22
+
+if (-not $Client) {
+    $selection = Read-Host "Choose client to install: [1] Vencord, [2] Equicord"
+    switch ($selection.Trim().ToLowerInvariant()) {
+        { $_ -in "1", "v", "vencord" } { $Client = "Vencord" }
+        { $_ -in "2", "e", "equicord" } { $Client = "Equicord" }
+        default { throw "Invalid choice. Run the script again and select 1 (Vencord) or 2 (Equicord)." }
+    }
+}
+
+switch ($Client) {
+    "Vencord" { $ClientRepo = $VencordRepo; $ClientPackageName = "vencord" }
+    "Equicord" { $ClientRepo = $EquicordRepo; $ClientPackageName = "equicord" }
+}
 
 function Exec {
     param([scriptblock]$Command)
@@ -31,12 +89,17 @@ function Exec {
     if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
+function Invoke-Pnpm {
+    param([string[]]$Arguments)
+    & npm exec --yes --package "pnpm@$PnpmVersion" -- pnpm @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "pnpm $($Arguments -join ' ') failed with exit code ${LASTEXITCODE}." }
+}
+
 function Test-Command {
     param([string]$Name)
     [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-# picks up PATH additions made by winget/corepack without a new shell
 function Update-SessionPath {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
     [Environment]::GetEnvironmentVariable("Path", "User")
@@ -51,7 +114,7 @@ function Install-WingetPackage {
     Update-SessionPath
 }
 
-# --- Prerequisites -----------------------------------------------------------
+# checks for prerequisites
 
 if (Test-Command git) {
     Write-Host "Git found: $(git --version)"
@@ -73,54 +136,37 @@ else {
 }
 if (-not $nodeOk) { Install-WingetPackage "OpenJS.NodeJS.LTS" }
 
-if (Test-Command pnpm) {
-    Write-Host "pnpm found: $(pnpm --version)"
-}
-else {
-    Write-Host "Activating pnpm $PnpmVersion via corepack..."
-    # corepack enable needs write access to the Node.js install dir; fall back
-    # to a per-user npm global install when that is denied (non-admin shell)
-    try {
-        Exec { corepack enable }
-        Exec { corepack prepare "pnpm@$PnpmVersion" --activate }
-    }
-    catch {
-        Write-Host "corepack failed ($_), falling back to npm..."
-        Exec { npm install -g "pnpm@$PnpmVersion" }
-    }
-    Update-SessionPath
-    if (-not (Test-Command pnpm)) {
-        throw "pnpm was installed but is not on PATH yet. Open a new terminal and re-run this script."
-    }
-}
-
-# --- Vencord + plugin checkouts ----------------------------------------------
-
-if (-not $VencordDir) {
-    # when the script runs from inside the plugin checkout, update that
-    # Vencord instead of cloning a new one
+if (-not $InstallDir) {
     $candidate = if ($PSScriptRoot) { Resolve-Path (Join-Path $PSScriptRoot "..\..\..") -ErrorAction SilentlyContinue } else { $null }
-    $VencordDir = if ($candidate -and (Test-Path (Join-Path $candidate "package.json")) -and
-        ((Get-Content (Join-Path $candidate "package.json") -Raw | ConvertFrom-Json).name -eq "vencord")) {
+    $InstallDir = if ($candidate -and (Test-Path (Join-Path $candidate "package.json")) -and
+        ((Get-Content (Join-Path $candidate "package.json") -Raw | ConvertFrom-Json).name -eq $ClientPackageName)) {
         "$candidate"
     }
     else {
-        # fixed default so running the one-liner from any directory always
-        # finds (or creates) the same install
-        Join-Path $env:USERPROFILE "Vencord"
+        Join-Path $env:USERPROFILE $Client
     }
 }
 
-if (Test-Path (Join-Path $VencordDir ".git")) {
-    Write-Host "Updating Vencord in $VencordDir..."
-    Exec { git -C $VencordDir pull --rebase --autostash }
+if (Test-Path (Join-Path $InstallDir ".git")) {
+    Write-Host "Updating $Client in $InstallDir..."
+    Exec { git -C $InstallDir pull --rebase --autostash }
 }
 else {
-    Write-Host "Cloning Vencord into $VencordDir..."
-    Exec { git clone $VencordRepo $VencordDir }
+    Write-Host "Cloning $Client into $InstallDir..."
+    Exec { git clone $ClientRepo $InstallDir }
 }
 
-$pluginDir = Join-Path $VencordDir $PluginPath
+$clientPackage = Get-Content (Join-Path $InstallDir "package.json") -Raw | ConvertFrom-Json
+if ($clientPackage.packageManager -match '^pnpm@(.+)$') {
+    $PnpmVersion = $Matches[1]
+}
+else {
+    throw "Could not determine the required pnpm version from '$InstallDir\package.json'."
+}
+
+Write-Host "Using pnpm $PnpmVersion for $Client via npm."
+
+$pluginDir = Join-Path $InstallDir $PluginPath
 if (Test-Path (Join-Path $pluginDir ".git")) {
     Write-Host "Updating PgpEncrypt plugin..."
     Exec { git -C $pluginDir pull --rebase --autostash }
@@ -130,36 +176,29 @@ else {
     Exec { git clone $PluginRepo $pluginDir }
 }
 
-# --- Dependencies, build, inject ---------------------------------------------
+# all the dependencies, build n inject
 
-Push-Location $VencordDir
+Push-Location $InstallDir
 try {
     Write-Host "Installing dependencies..."
-    Exec { pnpm install }
+    Invoke-Pnpm "install"
 
-    # stock Vencord does not ship the OpenPGP dependencies this plugin uses
     $package = Get-Content "package.json" -Raw | ConvertFrom-Json
     if (-not $package.dependencies.openpgp) {
         Write-Host "Adding openpgp..."
-        Exec { pnpm add -w openpgp }
+        Invoke-Pnpm @("add", "-w", "openpgp")
     }
     if (-not $package.devDependencies.'@openpgp/web-stream-tools') {
         Write-Host "Adding @openpgp/web-stream-tools..."
-        Exec { pnpm add -Dw "@openpgp/web-stream-tools" }
+        Invoke-Pnpm @("add", "-Dw", "@openpgp/web-stream-tools")
     }
 
-    Write-Host "Building Vencord..."
-    Exec { pnpm build }
-
-    # also build the browser extension (dist/chromium-unpacked); costs a few
-    # seconds and saves a manual step for anyone using Discord in a browser
+    Write-Host "Building $Client..."
+    Invoke-Pnpm "build"
     Write-Host "Building browser extension..."
-    Exec { pnpm buildWeb }
-
-    # interactive: asks which Discord install to patch; already-injected
-    # installs are detected and left alone
+    Invoke-Pnpm "buildWeb"
     Write-Host "Injecting into Discord..."
-    Exec { pnpm inject }
+    Invoke-Pnpm "inject"
 }
 finally {
     Pop-Location

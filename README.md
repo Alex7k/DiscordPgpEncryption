@@ -1,6 +1,6 @@
 # PgpEncrypt
 
-A Vencord userplugin for seamlessly sending and receiving PGP-encrypted Discord DMs.
+A Vencord/Equicord userplugin for seamlessly sending and receiving PGP-encrypted Discord DMs.
 
 With plugin:
 
@@ -25,14 +25,14 @@ Without plugin (not decrypted):
 
 ## Quick install/update (Windows)
 
-`install.ps1` automatically installs and injects Vencord with this plugin. Re-run any time to update. From any PowerShell window:
+`install.ps1` prompts you to choose Vencord or Equicord, then installs and injects the selected client. Re-run any time to update.
 
 ```powershell
 Set-ExecutionPolicy Bypass # allows running scripts on windows
 irm https://raw.githubusercontent.com/Alex7k/DiscordPgpEncryption/main/install.ps1 | iex
 ```
 
-After running this, start discord and enable the `PgpEncrypt` plugin in Vencord settings.
+After running this, start Discord and enable the `PgpEncrypt` plugin in the selected client's settings.
 
 Btw, this is the "quick install" so after that you don't need to run the commands in below sections.
 
